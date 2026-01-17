@@ -60,6 +60,8 @@ use smithay::wayland::selection::{SelectionHandler, SelectionTarget};
 use smithay::wayland::session_lock::{
     LockSurface, SessionLockHandler, SessionLockManagerState, SessionLocker,
 };
+use smithay::wayland::tablet_manager::TabletSeatHandler;
+use smithay::wayland::virtual_keyboard::VirtualKeyboardHandler;
 use smithay::wayland::xdg_activation::{
     XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
 };
@@ -275,6 +277,7 @@ impl InputMethodHandler for State {
             .unwrap_or_default()
     }
 }
+delegate_input_method_manager!(State);
 
 impl KeyboardShortcutsInhibitHandler for State {
     fn keyboard_shortcuts_inhibit_state(&mut self) -> &mut KeyboardShortcutsInhibitState {
@@ -295,6 +298,8 @@ impl KeyboardShortcutsInhibitHandler for State {
             .remove(&inhibitor.wl_surface().clone());
     }
 }
+delegate_keyboard_shortcuts_inhibit!(State);
+delegate_virtual_keyboard_manager!(State);
 
 impl SelectionHandler for State {
     type SelectionUserData = Arc<[u8]>;

@@ -1,6 +1,6 @@
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement, UnderlyingStorage};
-use smithay::backend::renderer::gles::GlesTexture;
+use smithay::backend::renderer::gles::{GlesError, GlesFrame, GlesRenderer, GlesTexture};
 use smithay::backend::renderer::utils::{CommitCounter, OpaqueRegions};
 use smithay::backend::renderer::{ContextId, Frame as _, ImportMem, Renderer, Texture};
 use smithay::utils::user_data::UserDataMap;
@@ -233,6 +233,39 @@ where
         opaque_regions: &[Rectangle<i32, Physical>],
         _cache: Option<&UserDataMap>,
     ) -> Result<(), R::Error> {
+        if frame.context_id() != self.buffer.renderer_context_id {
+            warn!("trying to render texture from different renderer");
+            return Ok(());
+        }
+
+        frame.render_texture_from_to(
+            &self.buffer.texture,
+            src,
+            dest,
+            damage,
+            opaque_regions,
+            self.buffer.transform,
+            self.alpha,
+        )
+    }
+
+    fn underlying_storage(&self, _renderer: &mut R) -> Option<UnderlyingStorage<'_>> {
+        None
+    }
+}
+
+impl<T> RenderElement<GlesRenderer> for TextureRenderElement<T>
+where
+    T: Texture,
+{
+    fn draw(
+        &self,
+        frame: &mut GlesFrame<'_, '_>,
+        src: Rectangle<f64, Buffer>,
+        dest: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
+    ) -> Result<(), GlesError> {
         if frame.context_id() != self.buffer.renderer_context_id {
             warn!("trying to render texture from different renderer");
             return Ok(());
