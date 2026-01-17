@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../smithay"
+		}
+	],
+	"settings": {
+		"editor.formatOnSave": true
+	}
+}
