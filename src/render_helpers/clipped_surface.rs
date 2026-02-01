@@ -10,6 +10,7 @@ use smithay::backend::renderer::utils::{CommitCounter, DamageSet, OpaqueRegions}
 use smithay::utils::user_data::UserDataMap;
 use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, Transform};
 
+use super::color_manage::{conversion_matrix_from_to, Colorimetry, TransferFunction};
 use super::damage::ExtraDamage;
 use super::renderer::{AsGlesFrame as _, NiriRenderer};
 use super::shaders::{mat3_uniform, Shaders};
@@ -22,6 +23,9 @@ pub struct ClippedSurfaceRenderElement<R: NiriRenderer> {
     corner_radius: CornerRadius,
     geometry: Rectangle<f64, Logical>,
     scale: f32,
+    input_tf: f32,
+    output_tf: f32,
+    input_to_output: Mat3,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -37,13 +41,26 @@ impl<R: NiriRenderer> ClippedSurfaceRenderElement<R> {
         geometry: Rectangle<f64, Logical>,
         program: GlesTexProgram,
         corner_radius: CornerRadius,
+        input_output: Option<(Colorimetry, Colorimetry)>,
     ) -> Self {
+        let (input_tf, output_tf, input_to_output) = if let Some((input, output)) = input_output {
+            (
+                input.tf.to_uniform(),
+                output.tf.to_uniform(),
+                conversion_matrix_from_to(&input.coordinates, &output.coordinates),
+            )
+        } else {
+            (0.0, 0.0, Mat3::IDENTITY)
+        };
         Self {
             inner: elem,
             program,
             corner_radius,
             geometry,
             scale: scale.x as f32,
+            input_tf,
+            output_tf,
+            input_to_output,
         }
     }
 
@@ -96,6 +113,9 @@ impl<R: NiriRenderer> ClippedSurfaceRenderElement<R> {
             Uniform::new("geo_size", geo_size),
             Uniform::new("corner_radius", <[f32; 4]>::from(self.corner_radius)),
             mat3_uniform("input_to_geo", input_to_geo),
+            Uniform::new("input_tf", self.input_tf),
+            Uniform::new("output_tf", self.output_tf),
+            mat3_uniform("input_to_output", self.input_to_output),
         ]
     }
 

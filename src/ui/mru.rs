@@ -383,8 +383,15 @@ impl Thumbnail {
             LayoutElementRenderElement::Wayland(elem) => {
                 if let Some(shader) = clip_shader.clone() {
                     if ClippedSurfaceRenderElement::will_clip(&elem, s, geo, radius) {
-                        let elem =
-                            ClippedSurfaceRenderElement::new(elem, s, geo, shader.clone(), radius);
+                        let elem = ClippedSurfaceRenderElement::new(
+                            elem,
+                            s,
+                            geo,
+                            shader.clone(),
+                            radius,
+                            None,
+                        );
+
                         return ThumbnailRenderElement::ClippedSurface(elem);
                     }
                 }
@@ -425,6 +432,26 @@ impl Thumbnail {
                 // will need to be handled somehow.
                 error!("background effect clipping is unimplemented");
                 elem.into()
+            }
+            LayoutElementRenderElement::ColorManaged(elem) => {
+                if let Some(shader) = clip_shader.clone() {
+                    if ClippedSurfaceRenderElement::will_clip(&elem.inner(), s, geo, radius) {
+                        let input_output = elem.input_output();
+                        let elem = ClippedSurfaceRenderElement::new(
+                            elem.into(),
+                            s,
+                            geo,
+                            shader.clone(),
+                            radius,
+                            Some(input_output),
+                        );
+                        return ThumbnailRenderElement::ClippedSurface(elem);
+                    }
+                }
+
+                // If we don't have the shader, render it normally.
+                let elem = LayoutElementRenderElement::ColorManaged(elem);
+                ThumbnailRenderElement::LayoutElement(elem)
             }
         };
 

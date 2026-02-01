@@ -1220,6 +1220,7 @@ impl<W: LayoutElement> Tile<W> {
                                     geo,
                                     shader.clone(),
                                     radius,
+                                    None,
                                 )
                                 .into();
                             }
@@ -1262,6 +1263,33 @@ impl<W: LayoutElement> Tile<W> {
                     // will need to be handled somehow.
                     error!("background effect clipping is unimplemented");
                     elem.into()
+                }
+                LayoutElementRenderElement::ColorManaged(elem) => {
+                    // If we should clip to geometry, render a clipped window.
+                    if clip_to_geometry {
+                        if let Some(shader) = clip_shader.clone() {
+                            if ClippedSurfaceRenderElement::will_clip(
+                                &elem.inner(),
+                                scale,
+                                geo,
+                                radius,
+                            ) {
+                                let input_output = elem.input_output();
+                                return ClippedSurfaceRenderElement::new(
+                                    elem.into(),
+                                    scale,
+                                    geo,
+                                    shader.clone(),
+                                    radius,
+                                    Some(input_output),
+                                )
+                                .into();
+                            }
+                        }
+                    }
+
+                    // Otherwise, render it normally.
+                    LayoutElementRenderElement::ColorManaged(elem).into()
                 }
             };
 

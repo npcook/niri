@@ -1,4 +1,5 @@
 pub mod background_effect;
+mod color;
 mod compositor;
 mod layer_shell;
 mod xdg_shell;

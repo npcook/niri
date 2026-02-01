@@ -13,6 +13,7 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::Resource as _;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Serial, Size, Transform};
+use smithay::wayland::color::management::{get_output_description, update_surface_preferred};
 use smithay::wayland::compositor::{remove_pre_commit_hook, with_states, HookId, SurfaceData};
 use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::shell::xdg::{
@@ -30,6 +31,9 @@ use crate::layout::{
 use crate::niri_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
 use crate::render_helpers::border::BorderRenderElement;
+use crate::render_helpers::color_manage::{
+    ColorManagedSurfaceRenderElement, Colorimetry, ColorspaceCoordinates, OutputColorimetry,
+};
 use crate::render_helpers::offscreen::OffscreenData;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::snapshot::RenderSnapshot;
@@ -193,6 +197,8 @@ pub struct Mapped {
 
     /// Most recent monotonic time when the window had the focus.
     focus_timestamp: Option<Duration>,
+
+    output_colorimetry: Cell<Option<Colorimetry>>,
 }
 
 niri_render_elements! {
@@ -308,6 +314,7 @@ impl Mapped {
             is_pending_maximized: false,
             uncommitted_maximized: Vec::new(),
             focus_timestamp: None,
+            output_colorimetry: Cell::new(None),
         };
 
         rv.is_maximized = rv.sizing_mode().is_maximized();
@@ -660,7 +667,7 @@ impl LayoutElement for Mapped {
         } else {
             let buf_pos = location - self.window.geometry().loc.to_f64();
             let surface = self.toplevel().wl_surface();
-            let mut push = |elem: WaylandSurfaceRenderElement<R>| push(elem.into());
+            let mut push = |elem: ColorManagedSurfaceRenderElement<R>| push(elem.into());
             push_elements_from_surface_tree(
                 ctx.renderer,
                 surface,
@@ -668,6 +675,7 @@ impl LayoutElement for Mapped {
                 scale,
                 alpha,
                 Kind::ScanoutCandidate,
+                self.output_colorimetry.get(),
                 &mut push,
             )
         }
@@ -686,6 +694,7 @@ impl LayoutElement for Mapped {
             return;
         }
 
+        let mut push = |elem: ColorManagedSurfaceRenderElement<R>| push(elem.into());
         let surface = self.toplevel().wl_surface();
         for (popup, offset) in PopupManager::popups_for_surface(surface) {
             let popup_rules = match popup {
@@ -706,7 +715,8 @@ impl LayoutElement for Mapped {
                 scale,
                 alpha,
                 Kind::ScanoutCandidate,
-                &mut |elem| push(elem.into()),
+                self.output_colorimetry.get(),
+                &mut push,
             );
 
             let geometry = Rectangle::new(location + offset.to_f64(), popup_geo.size.to_f64());
@@ -947,11 +957,25 @@ impl LayoutElement for Mapped {
 
     fn output_enter(&self, output: &Output) {
         let overlap = Rectangle::from_size(Size::from((i32::MAX, i32::MAX)));
+
+        let colorimetry = output
+            .user_data()
+            .get::<OutputColorimetry>()
+            .map(|colorimetry| colorimetry.colorimetry.lock().unwrap().clone())
+            .unwrap_or(Colorimetry::srgb_sdr());
+        self.output_colorimetry.set(Some(colorimetry.clone()));
+
+        if let Some(output_desc) = get_output_description(output) {
+            self.window.with_surfaces(|_, data| {
+                update_surface_preferred(data, output_desc.clone());
+            });
+        }
         self.window.output_enter(output, overlap)
     }
 
     fn output_leave(&self, output: &Output) {
-        self.window.output_leave(output)
+        self.window.output_leave(output);
+        self.output_colorimetry.set(None)
     }
 
     fn set_offscreen_data(&self, data: Option<OffscreenData>) {

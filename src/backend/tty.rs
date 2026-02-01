@@ -65,6 +65,10 @@ use super::{IpcOutputMap, RenderResult};
 use crate::backend::OutputId;
 use crate::frame_clock::FrameClock;
 use crate::niri::{Niri, RedrawState, State};
+use crate::render_helpers::color_manage::{
+    conversion_matrix_from_to, get_coordinates, Colorimetry, ColorspaceCoordinates,
+    MatrixCoefficients, OutputColorimetry, TransferFunction,
+};
 use crate::render_helpers::debug::draw_damage;
 use crate::render_helpers::renderer::AsGlesRenderer;
 use crate::render_helpers::{resources, shaders, RenderCtx, RenderTarget};
@@ -152,6 +156,7 @@ pub struct OutputDevice {
 pub struct CrtcInfo {
     id: OutputId,
     name: OutputName,
+    colorimetry: Colorimetry,
 }
 
 impl OutputDevice {
@@ -986,16 +991,85 @@ impl Tty {
                     crtc: Some(crtc),
                 } => {
                     let connector_name = format_connector_name(&connector);
+
+                    let info = get_edid_info(&device.drm, connector.handle())
+                        .map_err(|err| {
+                            warn!("error getting EDID info for {connector_name}: {err:?}")
+                        })
+                        .ok();
+
+                    // let chromacity = ColorspaceCoordinates {
+                    //     r: (0.6835, 0.3047),
+                    //     g: (0.2431, 0.7099),
+                    //     b: (0.1435, 0.0556),
+                    //     w: (0.3127, 0.3290),
+                    // };
+                    let chromacity = info
+                        .as_ref()
+                        .map(|info| info.default_color_primaries())
+                        .map(|primaries| ColorspaceCoordinates {
+                            r: (primaries.primary[0].x, primaries.primary[0].y),
+                            g: (primaries.primary[1].x, primaries.primary[1].y),
+                            b: (primaries.primary[2].x, primaries.primary[2].y),
+                            w: (primaries.default_white.x, primaries.default_white.y),
+                        })
+                        .unwrap_or(get_coordinates(MatrixCoefficients::Srgb));
+                    let luminances =
+                        info.as_ref()
+                            .map(|info| info.hdr_static_metadata())
+                            .map(|metadata| {
+                                (
+                                    metadata.desired_content_min_luminance,
+                                    metadata.desired_content_max_frame_avg_luminance,
+                                    metadata.desired_content_max_luminance,
+                                )
+                            });
+                    let mastering_luminances = luminances.map(|(min, _, max)| (min, max));
+                    let max_cll = 200f32;
+                    let max_fall = 200f32;
+                    // let chromacity = info
+                    //     .as_ref()
+                    //     .and_then(|info| info.edid())
+                    //     .map(|edid| {
+                    //         let coords = edid.chromaticity_coords();
+                    //         ColorspaceCoordinates {
+                    //             r: (coords.red_x, coords.red_y),
+                    //             g: (coords.green_x, coords.green_y),
+                    //             b: (coords.blue_x, coords.blue_y),
+                    //             w: (coords.white_x, coords.white_y),
+                    //         }
+                    //     })
+                    //     .unwrap_or(get_coordinates(MatrixCoefficients::Srgb));
+
+                    let container = Colorimetry::bt2020_sdr();
+
+                    let colorimetry = Colorimetry {
+                        tf: TransferFunction::Gamma22,
+                        coordinates: chromacity,
+                        luminances: container.luminances,
+                        mastering_primaries: Some(container.coordinates),
+                        mastering_luminances: Some((0f32, 200f32)),
+                        mastering_max_cll: None,  //Some(max_cll),
+                        mastering_max_fall: None, //Some(max_fall),
+                    };
                     let name = make_output_name(&device.drm, connector.handle(), connector_name);
                     debug!(
-                        "new connector: {} \"{}\"",
+                        "new connector: {} \"{}\", colorimetry: {:?}",
                         &name.connector,
                         name.format_make_model_serial(),
+                        colorimetry,
                     );
 
                     // Assign an id to this crtc.
                     let id = OutputId::next();
-                    added.push((crtc, CrtcInfo { id, name }));
+                    added.push((
+                        crtc,
+                        CrtcInfo {
+                            id,
+                            name,
+                            colorimetry,
+                        },
+                    ));
                 }
                 DrmScanEvent::Disconnected {
                     crtc: Some(crtc), ..
@@ -1393,6 +1467,17 @@ impl Tty {
         if let Some(x) = orientation {
             output.user_data().insert_if_missing(|| PanelOrientation(x));
         }
+
+        let output_colorimetry = OutputColorimetry {
+            colorimetry: Arc::new(Mutex::new(
+                *device
+                    .known_crtcs
+                    .get(&crtc)
+                    .map(|x| &x.colorimetry)
+                    .unwrap(),
+            )),
+        };
+        output.user_data().insert_if_missing(|| output_colorimetry);
 
         let render_node = device.render_node.unwrap_or(self.primary_render_node);
         let renderer = self.gpu_manager.single_renderer(&render_node)?;
@@ -2479,6 +2564,18 @@ impl Tty {
                     continue;
                 };
 
+                output.user_data().insert_if_missing(|| OutputColorimetry {
+                    colorimetry: Arc::new(Mutex::new(Colorimetry::srgb_sdr())),
+                });
+                let output_colorimetry = device.known_crtcs.get(&crtc).map(|x| &x.colorimetry);
+                if let Some(output_colorimetry) = output_colorimetry {
+                    let colorimetry: &OutputColorimetry = output.user_data().get().unwrap();
+                    {
+                        let mut colorimetry = colorimetry.colorimetry.lock().unwrap();
+                        *colorimetry = output_colorimetry.clone();
+                    }
+                }
+
                 if (is_on_demand_vrr && vrr_enabled != output_state.on_demand_vrr_enabled)
                     || (!is_on_demand_vrr && change_always_vrr)
                 {
@@ -2614,6 +2711,23 @@ impl Tty {
     }
 }
 
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct drm_color_lut {
+    pub red: u16,
+    pub green: u16,
+    pub blue: u16,
+    pub reserved: u16,
+}
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct drm_color_ctm {
+    pub matrix: [i64; 9],
+}
+
 impl GammaProps {
     fn new(device: &DrmDevice, crtc: crtc::Handle) -> anyhow::Result<Self> {
         let mut gamma_lut = None;
@@ -2676,16 +2790,6 @@ impl GammaProps {
                 .context("error getting gamma size")? as usize;
 
             ensure!(gamma.len() == gamma_size * 3, "wrong gamma length");
-
-            #[allow(non_camel_case_types)]
-            #[repr(C)]
-            #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-            pub struct drm_color_lut {
-                pub red: u16,
-                pub green: u16,
-                pub blue: u16,
-                pub reserved: u16,
-            }
 
             let (red, rest) = gamma.split_at(gamma_size);
             let (blue, green) = rest.split_at(gamma_size);
@@ -2921,6 +3025,81 @@ fn get_drm_property(
         .into_iter()
         .find_map(|(handle, value)| (handle == prop).then_some(value))
 }
+
+// fn get_degamma_lut(tf: Option<TransferFunction>) -> Vec<drm_color_lut> {
+//     let transform = match tf {
+//         Some(TransferFunction::Gamma22) => |val: f32| val.powf(2.2),
+//         Some(TransferFunction::Srgb) => |val: f32| val.powf(2.2),
+//         Some(TransferFunction::St2084Pq) => |val: f32| {
+//             const M1: f32 = 0.1593017578125;
+//             const M2: f32 = 78.84375;
+//             const C1: f32 = 0.8359375;
+//             const C2: f32 = 18.8515625;
+//             const C3: f32 = 18.6875;
+
+//             let val = val.powf(1.0 / M2);
+//             (f32::max(val - C1, 0.0) / (C2 - C3 * val)).powf(1.0 / M1)
+//         },
+//         None => return vec![],
+//     };
+
+//     (0..255)
+//         .map(|i| {
+//             let input = i as f32 / 255.0;
+//             let output = transform(input);
+//             let output_fixed = ((output * 65536.0) + 0.5).clamp(0.0, u16::MAX as f32) as u16;
+//             drm_color_lut {
+//                 red: output_fixed,
+//                 green: output_fixed,
+//                 blue: output_fixed,
+//                 reserved: 0,
+//             }
+//         })
+//         .collect()
+// }
+
+// fn get_ctm(input: Colorimetry, output: Colorimetry) -> drm_color_ctm {
+//     let mat = conversion_matrix_from_to(&input.coordinates, &output.coordinates);
+//     drm_color_ctm {
+//         matrix: mat.to_cols_array().map(|f| {
+//             let upper = f.trunc() as i32;
+//             let lower = (f.fract() * (u32::MAX + 1) as f32) as u32;
+//             ((upper << 32) as u64 | lower as u64) as i64
+//         }),
+//     }
+// }
+
+// fn get_gamma_lut(tf: Option<TransferFunction>) -> Vec<drm_color_lut> {
+//     let transform = match tf {
+//         Some(TransferFunction::Gamma22) => |val: f32| val.powf(1.0 / 2.2),
+//         Some(TransferFunction::Srgb) => |val: f32| val.powf(1.0 / 2.2),
+//         Some(TransferFunction::St2084Pq) => |val: f32| {
+//             const M1: f32 = 0.1593017578125;
+//             const M2: f32 = 78.84375;
+//             const C1: f32 = 0.8359375;
+//             const C2: f32 = 18.8515625;
+//             const C3: f32 = 18.6875;
+
+//             let val = val.powf(M1);
+//             ((C1 + C2 * val) / (1.0 + C3 * val)).powf(M2)
+//         },
+//         None => return vec![],
+//     };
+
+//     (0..255)
+//         .map(|i| {
+//             let input = i as f32 / 255.0;
+//             let output = transform(input);
+//             let output_fixed = ((output * u16::MAX as f32) + 0.5) as u16;
+//             drm_color_lut {
+//                 red: output_fixed,
+//                 green: output_fixed,
+//                 blue: output_fixed,
+//                 reserved: 0,
+//             }
+//         })
+//         .collect()
+// }
 
 fn refresh_interval(mode: DrmMode) -> Duration {
     let clock = mode.clock() as u64;

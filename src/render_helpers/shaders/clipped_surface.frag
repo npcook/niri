@@ -1,5 +1,3 @@
-#version 100
-
 //_DEFINES_
 
 #if defined(EXTERNAL)
@@ -45,7 +43,9 @@ void main() {
         color = vec4(0.0);
     } else {
         // Apply corner rounding inside geometry.
-        color = color * niri_rounding_alpha(coords_geo.xy * geo_size, geo_size, corner_radius);
+        vec3 color_linear = convert_linear_color(color_to_linear(color.rgb));
+        float ra = niri_rounding_alpha(coords_geo.xy * geo_size, geo_size, corner_radius);
+        color = vec4(linear_to_color(color_linear * ra), color.a * ra);
     }
 
     // Apply final alpha and tint.

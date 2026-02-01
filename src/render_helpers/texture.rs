@@ -219,45 +219,7 @@ impl<T: Texture> Element for TextureRenderElement<T> {
     }
 }
 
-impl<R, T> RenderElement<R> for TextureRenderElement<T>
-where
-    R: Renderer<TextureId = T>,
-    T: Texture,
-{
-    fn draw(
-        &self,
-        frame: &mut R::Frame<'_, '_>,
-        src: Rectangle<f64, Buffer>,
-        dest: Rectangle<i32, Physical>,
-        damage: &[Rectangle<i32, Physical>],
-        opaque_regions: &[Rectangle<i32, Physical>],
-        _cache: Option<&UserDataMap>,
-    ) -> Result<(), R::Error> {
-        if frame.context_id() != self.buffer.renderer_context_id {
-            warn!("trying to render texture from different renderer");
-            return Ok(());
-        }
-
-        frame.render_texture_from_to(
-            &self.buffer.texture,
-            src,
-            dest,
-            damage,
-            opaque_regions,
-            self.buffer.transform,
-            self.alpha,
-        )
-    }
-
-    fn underlying_storage(&self, _renderer: &mut R) -> Option<UnderlyingStorage<'_>> {
-        None
-    }
-}
-
-impl<T> RenderElement<GlesRenderer> for TextureRenderElement<T>
-where
-    T: Texture,
-{
+impl RenderElement<GlesRenderer> for TextureRenderElement<GlesTexture> {
     fn draw(
         &self,
         frame: &mut GlesFrame<'_, '_>,
@@ -279,10 +241,12 @@ where
             opaque_regions,
             self.buffer.transform,
             self.alpha,
+            None,
+            &[],
         )
     }
 
-    fn underlying_storage(&self, _renderer: &mut R) -> Option<UnderlyingStorage<'_>> {
+    fn underlying_storage(&self, _renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
         None
     }
 }

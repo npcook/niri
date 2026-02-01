@@ -12,6 +12,7 @@ use crate::animation::Clock;
 use crate::layout::shadow::Shadow;
 use crate::niri_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
+use crate::render_helpers::color_manage::{ColorManagedSurfaceRenderElement, Colorimetry};
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
@@ -53,6 +54,8 @@ pub struct MappedLayer {
 
     /// Clock for driving animations.
     clock: Clock,
+
+    output_colorimetry: Option<Colorimetry>,
 }
 
 niri_render_elements! {
@@ -61,6 +64,7 @@ niri_render_elements! {
         SolidColor = SolidColorRenderElement,
         Shadow = ShadowRenderElement,
         BackgroundEffect = BackgroundEffectElement,
+        ColorManaged = ColorManagedSurfaceRenderElement<R>,
     }
 }
 
@@ -73,11 +77,14 @@ impl MappedLayer {
         scale: f64,
         clock: Clock,
         config: &Config,
+        output_colorimetry: Option<Colorimetry>,
     ) -> Self {
         let mut shadow_config = config.layout.shadow;
         // Shadows for layer surfaces need to be explicitly enabled.
         shadow_config.on = false;
         shadow_config.merge_with(&rules.shadow);
+
+        // println!("output_colorimetry: {:?}", output_colorimetry);
 
         Self {
             surface,
@@ -90,6 +97,7 @@ impl MappedLayer {
             shadow: Shadow::new(shadow_config),
             blur_config: config.blur,
             clock,
+            output_colorimetry,
         }
     }
 
@@ -225,6 +233,7 @@ impl MappedLayer {
                 scale,
                 alpha,
                 Kind::ScanoutCandidate,
+                self.output_colorimetry,
                 &mut |elem| push(elem.into()),
             );
         }
@@ -294,6 +303,7 @@ impl MappedLayer {
                 scale,
                 alpha,
                 Kind::ScanoutCandidate,
+                self.output_colorimetry,
                 &mut |elem| push(elem.into()),
             );
 

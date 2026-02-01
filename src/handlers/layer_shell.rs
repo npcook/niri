@@ -10,6 +10,7 @@ use smithay::wayland::shell::xdg::PopupSurface;
 
 use crate::layer::{MappedLayer, ResolvedLayerRules};
 use crate::niri::State;
+use crate::render_helpers::color_manage::OutputColorimetry;
 use crate::utils::{is_mapped, output_size, send_scale_transform};
 
 impl WlrLayerShellHandler for State {
@@ -124,6 +125,11 @@ impl State {
                 let scale = output.current_scale().fractional_scale();
 
                 let hook = add_mapped_layer_pre_commit_hook(layer);
+                let colorimetry = output
+                    .user_data()
+                    .get::<OutputColorimetry>()
+                    .map(|colorimetry| colorimetry.colorimetry.lock().unwrap().clone());
+
                 let mapped = MappedLayer::new(
                     layer.clone(),
                     hook,
@@ -132,6 +138,7 @@ impl State {
                     scale,
                     self.niri.clock.clone(),
                     &config,
+                    colorimetry,
                 );
 
                 let prev = self
