@@ -157,9 +157,7 @@ use crate::protocols::output_management::OutputManagementManagerState;
 use crate::protocols::screencopy::{Screencopy, ScreencopyBuffer, ScreencopyManagerState};
 use crate::protocols::virtual_pointer::VirtualPointerManagerState;
 use crate::render_helpers::blur::BlurOptions;
-use crate::render_helpers::color_manage::{
-    ColorManagedSurfaceRenderElement, Colorimetry, OutputColorimetry,
-};
+use crate::render_helpers::color_manage::{ColorManagedSurfaceRenderElement, OutputColorimetry};
 use crate::render_helpers::debug::push_opaque_regions;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;

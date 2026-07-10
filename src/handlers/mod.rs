@@ -62,7 +62,6 @@ use smithay::wayland::session_lock::{
     LockSurface, SessionLockHandler, SessionLockManagerState, SessionLocker,
 };
 use smithay::wayland::tablet_manager::TabletSeatHandler;
-use smithay::wayland::virtual_keyboard::VirtualKeyboardHandler;
 use smithay::wayland::xdg_activation::{
     XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
 };

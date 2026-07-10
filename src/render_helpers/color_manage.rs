@@ -8,6 +8,7 @@ use smithay::backend::renderer::gles::{
 };
 use smithay::backend::renderer::utils::{CommitCounter, DamageSet, OpaqueRegions};
 use smithay::reexports::wayland_protocols::wp::color_management::v1::server::wp_color_manager_v1::{self, Primaries};
+use smithay::utils::user_data::UserDataMap;
 use smithay::utils::{Buffer, Physical, Rectangle, Scale, Transform};
 use smithay::wayland::color::management::{
     ImageDescriptionContents, Luminance, MasteringLuminance, ParametricPrimaries, PrimariesEnum, TransferFunctionEnum
@@ -95,7 +96,7 @@ impl Into<ImageDescriptionContents> for &Colorimetry {
 impl Into<Colorimetry> for &ImageDescriptionContents {
     fn into(self) -> Colorimetry {
         match self {
-            ImageDescriptionContents::ICC(icc) => {
+            ImageDescriptionContents::ICC(_icc) => {
                 log::info!("ICC");
                 Colorimetry::srgb_sdr()
             }
@@ -488,9 +489,18 @@ impl RenderElement<GlesRenderer> for ColorManagedSurfaceRenderElement<GlesRender
         dst: Rectangle<i32, Physical>,
         damage: &[Rectangle<i32, Physical>],
         opaque_regions: &[Rectangle<i32, Physical>],
+        cache: Option<&UserDataMap>,
     ) -> Result<(), GlesError> {
         frame.override_default_tex_program(self.program.clone(), self.compute_uniforms());
-        RenderElement::<GlesRenderer>::draw(&self.inner, frame, src, dst, damage, opaque_regions)?;
+        RenderElement::<GlesRenderer>::draw(
+            &self.inner,
+            frame,
+            src,
+            dst,
+            damage,
+            opaque_regions,
+            cache,
+        )?;
         frame.clear_tex_program_override();
         Ok(())
     }
@@ -512,11 +522,12 @@ impl<'render> RenderElement<TtyRenderer<'render>>
         dst: Rectangle<i32, Physical>,
         damage: &[Rectangle<i32, Physical>],
         opaque_regions: &[Rectangle<i32, Physical>],
+        cache: Option<&UserDataMap>,
     ) -> Result<(), TtyRendererError<'render>> {
         frame
             .as_gles_frame()
             .override_default_tex_program(self.program.clone(), self.compute_uniforms());
-        RenderElement::draw(&self.inner, frame, src, dst, damage, opaque_regions)?;
+        RenderElement::draw(&self.inner, frame, src, dst, damage, opaque_regions, cache)?;
         frame.as_gles_frame().clear_tex_program_override();
         Ok(())
     }

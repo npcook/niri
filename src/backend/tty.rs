@@ -14,7 +14,7 @@ use anyhow::{anyhow, bail, ensure, Context};
 use bytemuck::cast_slice_mut;
 use drm_ffi::drm_mode_modeinfo;
 use libc::dev_t;
-use niri_config::output::{MaxBpc, Modeline};
+use niri_config::output::{Bpc, Modeline};
 use niri_config::{Config, OutputName};
 use niri_ipc::{HSyncPolarity, VSyncPolarity};
 use smithay::backend::allocator::dmabuf::Dmabuf;
@@ -66,8 +66,8 @@ use crate::backend::OutputId;
 use crate::frame_clock::FrameClock;
 use crate::niri::{Niri, RedrawState, State};
 use crate::render_helpers::color_manage::{
-    conversion_matrix_from_to, get_coordinates, Colorimetry, ColorspaceCoordinates,
-    MatrixCoefficients, OutputColorimetry, TransferFunction,
+    get_coordinates, Colorimetry, ColorspaceCoordinates, MatrixCoefficients, OutputColorimetry,
+    TransferFunction,
 };
 use crate::render_helpers::debug::draw_damage;
 use crate::render_helpers::renderer::AsGlesRenderer;
@@ -1024,9 +1024,9 @@ impl Tty {
                                     metadata.desired_content_max_luminance,
                                 )
                             });
-                    let mastering_luminances = luminances.map(|(min, _, max)| (min, max));
-                    let max_cll = 200f32;
-                    let max_fall = 200f32;
+                    let _mastering_luminances = luminances.map(|(min, _, max)| (min, max));
+                    let _max_cll = 200f32;
+                    let _max_fall = 200f32;
                     // let chromacity = info
                     //     .as_ref()
                     //     .and_then(|info| info.edid())

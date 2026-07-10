@@ -227,6 +227,7 @@ impl RenderElement<GlesRenderer> for TextureRenderElement<GlesTexture> {
         dest: Rectangle<i32, Physical>,
         damage: &[Rectangle<i32, Physical>],
         opaque_regions: &[Rectangle<i32, Physical>],
+        _cache: Option<&UserDataMap>,
     ) -> Result<(), GlesError> {
         if frame.context_id() != self.buffer.renderer_context_id {
             warn!("trying to render texture from different renderer");

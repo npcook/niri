@@ -2,7 +2,6 @@ use std::cell::{Cell, Ref, RefCell};
 use std::time::Duration;
 
 use niri_config::{Color, Config, CornerRadius, GradientInterpolation, WindowRule};
-use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::desktop::space::SpaceElement as _;
@@ -32,7 +31,7 @@ use crate::niri_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
 use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::color_manage::{
-    ColorManagedSurfaceRenderElement, Colorimetry, ColorspaceCoordinates, OutputColorimetry,
+    ColorManagedSurfaceRenderElement, Colorimetry, OutputColorimetry,
 };
 use crate::render_helpers::offscreen::OffscreenData;
 use crate::render_helpers::renderer::NiriRenderer;
@@ -694,7 +693,6 @@ impl LayoutElement for Mapped {
             return;
         }
 
-        let mut push = |elem: ColorManagedSurfaceRenderElement<R>| push(elem.into());
         let surface = self.toplevel().wl_surface();
         for (popup, offset) in PopupManager::popups_for_surface(surface) {
             let popup_rules = match popup {
@@ -716,7 +714,7 @@ impl LayoutElement for Mapped {
                 alpha,
                 Kind::ScanoutCandidate,
                 self.output_colorimetry.get(),
-                &mut push,
+                &mut |elem| push(elem.into()),
             );
 
             let geometry = Rectangle::new(location + offset.to_f64(), popup_geo.size.to_f64());

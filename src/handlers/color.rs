@@ -18,7 +18,7 @@ impl ColorManagementHandler for State {
         &mut self.niri.color_management_state
     }
 
-    fn verify_icc(&mut self, icc_data: &[u8]) -> bool {
+    fn verify_icc(&mut self, _icc_data: &[u8]) -> bool {
         false
     }
 

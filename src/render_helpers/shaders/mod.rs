@@ -71,36 +71,6 @@ impl Shaders {
         })
         .ok();
 
-        let shadow = ShaderProgram::compile(
-            renderer,
-            concat!(
-                include_str!("shadow.frag"),
-                include_str!("rounding_alpha.frag")
-            ),
-            &[
-                UniformName::new("shadow_color", UniformType::_4f),
-                UniformName::new("sigma", UniformType::_1f),
-                UniformName::new("input_to_geo", UniformType::Matrix3x3),
-                UniformName::new("geo_size", UniformType::_2f),
-                UniformName::new("corner_radius", UniformType::_4f),
-                UniformName::new("window_input_to_geo", UniformType::Matrix3x3),
-                UniformName::new("window_geo_size", UniformType::_2f),
-                UniformName::new("window_corner_radius", UniformType::_4f),
-            ],
-            &[],
-        )
-        .map_err(|err| {
-            warn!("error compiling shadow shader: {err:?}");
-        })
-        .ok();
-
-        let border =
-            ShaderProgram::compile(renderer, include_str!("border.frag"), &border_uniforms, &[])
-                .map_err(|err| {
-                    warn!("error compiling border shader: {err:?}");
-                })
-                .ok();
-
         let shadow_uniforms = [
             UniformName::new("shadow_color", UniformType::_4f),
             UniformName::new("sigma", UniformType::_1f),
@@ -111,12 +81,20 @@ impl Shaders {
             UniformName::new("window_geo_size", UniformType::_2f),
             UniformName::new("window_corner_radius", UniformType::_4f),
         ];
-        let shadow =
-            ShaderProgram::compile(renderer, include_str!("shadow.frag"), &shadow_uniforms, &[])
-                .map_err(|err| {
-                    warn!("error compiling shadow shader: {err:?}");
-                })
-                .ok();
+
+        let shadow = ShaderProgram::compile(
+            renderer,
+            concat!(
+                include_str!("shadow.frag"),
+                include_str!("rounding_alpha.frag")
+            ),
+            &shadow_uniforms,
+            &[],
+        )
+        .map_err(|err| {
+            warn!("error compiling shadow shader: {err:?}");
+        })
+        .ok();
 
         let mut clipped_surface_uniforms = color_uniforms.clone();
         clipped_surface_uniforms.extend_from_slice(&[
@@ -171,7 +149,10 @@ impl Shaders {
         gradient_fade_uniforms.extend_from_slice(&[UniformName::new("cutoff", UniformType::_2f)]);
         let gradient_fade = renderer
             .compile_custom_texture_shader(
-                &(color_common.clone() + include_str!("gradient_fade.frag")),
+                concat!(
+                    include_str!("color_common.frag"),
+                    include_str!("gradient_fade.frag")
+                ),
                 &gradient_fade_uniforms,
             )
             .map_err(|err| {
