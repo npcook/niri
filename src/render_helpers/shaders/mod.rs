@@ -43,7 +43,8 @@ impl Shaders {
             UniformName::new("input_to_output", UniformType::Matrix3x3),
         ];
 
-        let border_uniforms = [
+        let mut border_uniforms = vec![]; //color_uniforms.clone();
+        border_uniforms.extend_from_slice(&[
             UniformName::new("colorspace", UniformType::_1f),
             UniformName::new("hue_interpolation", UniformType::_1f),
             UniformName::new("color_from", UniformType::_4f),
@@ -55,11 +56,12 @@ impl Shaders {
             UniformName::new("geo_size", UniformType::_2f),
             UniformName::new("outer_radius", UniformType::_4f),
             UniformName::new("border_width", UniformType::_1f),
-        ];
+        ]);
 
         let border = ShaderProgram::compile(
             renderer,
             concat!(
+                // include_str!("color_common.frag"),
                 include_str!("border.frag"),
                 include_str!("rounding_alpha.frag")
             ),

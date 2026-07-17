@@ -16,6 +16,7 @@ use super::renderer::NiriRenderer;
 use super::shader_element::ShaderRenderElement;
 use super::shaders::{mat3_uniform, ProgramType, Shaders};
 use crate::backend::tty::{TtyFrame, TtyRenderer, TtyRendererError};
+use crate::render_helpers::color_manage::TransferFunction;
 use crate::render_helpers::renderer::AsGlesFrame as _;
 
 /// Renders a wide variety of borders and border parts.
@@ -44,6 +45,9 @@ struct Parameters {
     // Should only be used for visual improvements, i.e. corner radius anti-aliasing.
     scale: f32,
     alpha: f32,
+    // input_tf: TransferFunction,
+    // output_tf: TransferFunction,
+    // input_to_output: Mat3,
 }
 
 impl BorderRenderElement {

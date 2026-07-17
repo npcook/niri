@@ -15,6 +15,7 @@ use super::damage::ExtraDamage;
 use super::renderer::{AsGlesFrame as _, NiriRenderer};
 use super::shaders::{mat3_uniform, Shaders};
 use crate::backend::tty::{TtyFrame, TtyRenderer, TtyRendererError};
+use crate::render_helpers::color_manage::luminance_scale_from_to;
 
 #[derive(Debug)]
 pub struct ClippedSurfaceRenderElement<R: NiriRenderer> {
@@ -47,7 +48,8 @@ impl<R: NiriRenderer> ClippedSurfaceRenderElement<R> {
             (
                 input.tf.to_uniform(),
                 output.tf.to_uniform(),
-                conversion_matrix_from_to(&input.coordinates, &output.coordinates),
+                conversion_matrix_from_to(&input.coordinates, &output.coordinates)
+                    * luminance_scale_from_to(&input, &output),
             )
         } else {
             (0.0, 0.0, Mat3::IDENTITY)

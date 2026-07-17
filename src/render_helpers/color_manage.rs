@@ -41,10 +41,17 @@ impl TransferFunction {
 }
 
 #[derive(Debug, Copy, Clone)]
+pub struct ColorimetryLuminance {
+    pub min: f32,
+    pub max: f32,
+    pub reference: f32,
+}
+
+#[derive(Debug, Copy, Clone)]
 pub struct Colorimetry {
     pub tf: TransferFunction,
     pub coordinates: ColorspaceCoordinates,
-    pub luminances: Option<(f32, f32, f32)>,
+    pub luminances: Option<ColorimetryLuminance>,
     pub mastering_primaries: Option<ColorspaceCoordinates>,
     pub mastering_luminances: Option<(f32, f32)>,
     pub mastering_max_cll: Option<f32>,
@@ -65,10 +72,10 @@ impl Into<ImageDescriptionContents> for &Colorimetry {
             }
         };
         let primaries = PrimariesEnum::Parametric((&self.coordinates).into());
-        let luminances = self.luminances.map(|(min, max, reference)| Luminance {
-            min: (min * 10_000.0 + 0.5) as u32,
-            max: (max + 0.5) as u32,
-            reference: (reference + 0.5) as u32,
+        let luminances = self.luminances.map(|luminances| Luminance {
+            min: (luminances.min * 10_000.0 + 0.5) as u32,
+            max: (luminances.max + 0.5) as u32,
+            reference: (luminances.reference + 0.5) as u32,
         });
         let target_primaries = self
             .mastering_primaries
@@ -145,8 +152,11 @@ impl Into<Colorimetry> for &ImageDescriptionContents {
                     }
                 }
                 .unwrap();
-                let luminances =
-                    luminances.map(|x| (x.min as f32 / 10_000.0, x.max as f32, x.reference as f32));
+                let luminances = luminances.map(|x| ColorimetryLuminance {
+                    min: x.min as f32 / 10_000.0,
+                    max: x.max as f32,
+                    reference: x.reference as f32,
+                });
                 let mastering_primaries = target_primaries.map(|primaries| (&primaries).into());
                 let mastering_luminances =
                     target_luminance.map(|lum| (lum.min as f32 / 1_000.0, lum.max as f32));
@@ -185,7 +195,11 @@ impl Colorimetry {
         Colorimetry {
             tf: TransferFunction::Srgb,
             coordinates: get_coordinates(MatrixCoefficients::Srgb),
-            luminances: Some((0f32, 80f32, 80f32)),
+            luminances: Some(ColorimetryLuminance {
+                min: 0f32,
+                max: 80f32,
+                reference: 80f32,
+            }),
             ..Colorimetry::default()
         }
     }
@@ -194,7 +208,11 @@ impl Colorimetry {
         Colorimetry {
             tf: TransferFunction::Gamma22,
             coordinates: get_coordinates(MatrixCoefficients::DciP3),
-            luminances: Some((0f32, 80f32, 80f32)),
+            luminances: Some(ColorimetryLuminance {
+                min: 0f32,
+                max: 80f32,
+                reference: 80f32,
+            }),
             ..Colorimetry::default()
         }
     }
@@ -203,7 +221,11 @@ impl Colorimetry {
         Colorimetry {
             tf: TransferFunction::Gamma22,
             coordinates: get_coordinates(MatrixCoefficients::Rec2020),
-            luminances: Some((0f32, 200f32, 200f32)),
+            luminances: Some(ColorimetryLuminance {
+                min: 0f32,
+                max: 200f32,
+                reference: 200f32,
+            }),
             ..Colorimetry::default()
         }
     }
@@ -212,7 +234,11 @@ impl Colorimetry {
         Colorimetry {
             tf: TransferFunction::St2084Pq,
             coordinates: get_coordinates(MatrixCoefficients::Rec2020),
-            luminances: Some((0f32, 203f32, 10000f32)),
+            luminances: Some(ColorimetryLuminance {
+                min: 0f32,
+                max: 10000f32,
+                reference: 80f32,
+            }),
             ..Colorimetry::default()
         }
     }
@@ -325,6 +351,21 @@ pub fn conversion_matrix_from_to(from: &ColorspaceCoordinates, to: &ColorspaceCo
     to_mat.inverse() * from_mat
 }
 
+pub fn colorimetry_luminance(colorimetry: &Colorimetry) -> f32 {
+    match colorimetry.tf {
+        TransferFunction::Srgb => 80.0 / 10000.0,
+        TransferFunction::St2084Pq => 1.0,
+        // TransferFunction::St2084Pq => colorimetry
+        //     .luminances
+        //     .map_or(1.0, |luminance| luminance.max / 10000.0),
+        TransferFunction::Gamma22 => 80.0 / 10000.0,
+    }
+}
+
+pub fn luminance_scale_from_to(from: &Colorimetry, to: &Colorimetry) -> f32 {
+    colorimetry_luminance(&from) / colorimetry_luminance(&to)
+}
+
 #[test]
 fn test_conversion_matrix() {
     fn round_to_4(v: f32) -> i32 {
@@ -403,7 +444,8 @@ impl<R: NiriRenderer> ColorManagedSurfaceRenderElement<R> {
         input: Colorimetry,
         output: Colorimetry,
     ) -> Self {
-        let input_to_output = conversion_matrix_from_to(&input.coordinates, &output.coordinates);
+        let input_to_output = conversion_matrix_from_to(&input.coordinates, &output.coordinates)
+            * luminance_scale_from_to(&input, &output);
 
         Self {
             inner: elem,

@@ -1103,6 +1103,12 @@ pub enum OutputAction {
         #[cfg_attr(feature = "clap", arg())]
         max_bpc: MaxBpc,
     },
+    /// Enables or disables high dynamic range.
+    Hdr {
+        /// HDR mode to set.
+        #[cfg_attr(feature = "clap", command(flatten))]
+        hdr: HdrToSet,
+    }
 }
 
 /// Output mode to set.
@@ -1202,6 +1208,24 @@ pub struct VrrToSet {
     /// Only enable when the output shows a window matching the variable-refresh-rate window rule.
     #[cfg_attr(feature = "clap", arg(long))]
     pub on_demand: bool,
+}
+
+/// Output VRR to set.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "clap", derive(clap::Args))]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct HdrToSet {
+    /// Whether to enable HDR.
+    #[cfg_attr(
+        feature = "clap",
+        arg(
+            value_name = "ON|OFF",
+            action = clap::ArgAction::Set,
+            value_parser = clap::builder::BoolishValueParser::new(),
+            hide_possible_values = true,
+        ),
+    )]
+    pub hdr: bool,
 }
 
 /// Connected output.

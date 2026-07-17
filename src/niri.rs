@@ -1952,6 +1952,7 @@ impl State {
                 }
             }
             niri_ipc::OutputAction::MaxBpc { max_bpc } => config.max_bpc = Some(MaxBpc(max_bpc)),
+            niri_ipc::OutputAction::Hdr { hdr } => config.hdr = hdr.hdr,
         });
 
         self.reload_output_config();
