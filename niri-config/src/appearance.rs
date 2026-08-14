@@ -622,6 +622,12 @@ pub enum BlockOutFrom {
     ScreenCapture,
 }
 
+#[derive(knuffel::DecodeScalar, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Colorspace {
+    Srgb,
+    Native,
+}
+
 #[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
 pub struct BorderRule {
     #[knuffel(child)]

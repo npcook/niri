@@ -1,6 +1,8 @@
+use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
 use glam::{Mat3, Vec3};
+use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement, UnderlyingStorage};
 use smithay::backend::renderer::gles::{
@@ -28,6 +30,13 @@ pub enum TransferFunction {
     Srgb,
     St2084Pq,
     Gamma22,
+    Linear,
+}
+
+impl Default for TransferFunction {
+    fn default() -> Self {
+        Self::Srgb
+    }
 }
 
 impl TransferFunction {
@@ -35,6 +44,7 @@ impl TransferFunction {
         match self {
             Self::Srgb => 1f32,
             Self::St2084Pq => 2f32,
+            Self::Linear => 3f32,
             Self::Gamma22 => 12.2f32,
         }
     }
@@ -69,6 +79,9 @@ impl Into<ImageDescriptionContents> for &Colorimetry {
             }
             TransferFunction::St2084Pq => {
                 TransferFunctionEnum::Named(wp_color_manager_v1::TransferFunction::St2084Pq)
+            }
+            TransferFunction::Linear => {
+                TransferFunctionEnum::Named(wp_color_manager_v1::TransferFunction::ExtLinear)
             }
         };
         let primaries = PrimariesEnum::Parametric((&self.coordinates).into());
@@ -172,6 +185,19 @@ impl Into<Colorimetry> for &ImageDescriptionContents {
                     mastering_max_fall,
                 }
             }
+            ImageDescriptionContents::Scrgb => Colorimetry {
+                tf: TransferFunction::Linear,
+                coordinates: get_coordinates(MatrixCoefficients::Srgb),
+                luminances: Some(ColorimetryLuminance {
+                    min: 0.0,
+                    max: 80.0,
+                    reference: 80.0,
+                }),
+                mastering_primaries: None,
+                mastering_luminances: None,
+                mastering_max_cll: None,
+                mastering_max_fall: None,
+            },
         }
     }
 }
@@ -234,6 +260,19 @@ impl Colorimetry {
         Colorimetry {
             tf: TransferFunction::St2084Pq,
             coordinates: get_coordinates(MatrixCoefficients::Rec2020),
+            luminances: Some(ColorimetryLuminance {
+                min: 0f32,
+                max: 10000f32,
+                reference: 80f32,
+            }),
+            ..Colorimetry::default()
+        }
+    }
+
+    pub fn scrgb() -> Colorimetry {
+        Colorimetry {
+            tf: TransferFunction::Linear,
+            coordinates: get_coordinates(MatrixCoefficients::Srgb),
             luminances: Some(ColorimetryLuminance {
                 min: 0f32,
                 max: 10000f32,
@@ -359,6 +398,7 @@ pub fn colorimetry_luminance(colorimetry: &Colorimetry) -> f32 {
         //     .luminances
         //     .map_or(1.0, |luminance| luminance.max / 10000.0),
         TransferFunction::Gamma22 => 80.0 / 10000.0,
+        TransferFunction::Linear => 80.0 / 10000.0,
     }
 }
 
@@ -421,29 +461,35 @@ fn test_conversion_matrix() {
 }
 
 #[derive(Debug)]
-pub struct ColorManagedSurfaceRenderElement<R: NiriRenderer> {
-    inner: WaylandSurfaceRenderElement<R>,
+pub struct ColorManagedElement<R: NiriRenderer, RE: RenderElement<R>> {
+    inner: RE,
     program: GlesTexProgram,
     input: Colorimetry,
     output: Colorimetry,
     input_tf: TransferFunction,
     output_tf: TransferFunction,
     input_to_output: Mat3,
+    _phantom: PhantomData<R>,
 }
 
-impl<R: NiriRenderer> From<ColorManagedSurfaceRenderElement<R>> for WaylandSurfaceRenderElement<R> {
-    fn from(value: ColorManagedSurfaceRenderElement<R>) -> Self {
+impl<R: NiriRenderer> From<ColorManagedElement<R, WaylandSurfaceRenderElement<R>>>
+    for WaylandSurfaceRenderElement<R>
+{
+    fn from(value: ColorManagedElement<R, WaylandSurfaceRenderElement<R>>) -> Self {
         value.inner
     }
 }
 
-impl<R: NiriRenderer> ColorManagedSurfaceRenderElement<R> {
-    pub fn new(
-        elem: WaylandSurfaceRenderElement<R>,
-        renderer: &mut R,
-        input: Colorimetry,
-        output: Colorimetry,
-    ) -> Self {
+impl<R: NiriRenderer> From<ColorManagedElement<R, MemoryRenderBufferRenderElement<R>>>
+    for MemoryRenderBufferRenderElement<R>
+{
+    fn from(value: ColorManagedElement<R, MemoryRenderBufferRenderElement<R>>) -> Self {
+        value.inner
+    }
+}
+
+impl<R: NiriRenderer, RE: RenderElement<R>> ColorManagedElement<R, RE> {
+    pub fn new(elem: RE, renderer: &mut R, input: Colorimetry, output: Colorimetry) -> Self {
         let input_to_output = conversion_matrix_from_to(&input.coordinates, &output.coordinates)
             * luminance_scale_from_to(&input, &output);
 
@@ -455,10 +501,11 @@ impl<R: NiriRenderer> ColorManagedSurfaceRenderElement<R> {
             input_tf: input.tf,
             output_tf: output.tf,
             input_to_output,
+            _phantom: PhantomData,
         }
     }
 
-    pub fn inner(&self) -> &WaylandSurfaceRenderElement<R> {
+    pub fn inner(&self) -> &RE {
         &self.inner
     }
 
@@ -481,7 +528,7 @@ impl<R: NiriRenderer> ColorManagedSurfaceRenderElement<R> {
     }
 }
 
-impl<R: NiriRenderer> Element for ColorManagedSurfaceRenderElement<R> {
+impl<R: NiriRenderer, RE: RenderElement<R>> Element for ColorManagedElement<R, RE> {
     fn id(&self) -> &Id {
         self.inner.id()
     }
@@ -523,7 +570,175 @@ impl<R: NiriRenderer> Element for ColorManagedSurfaceRenderElement<R> {
     }
 }
 
-impl RenderElement<GlesRenderer> for ColorManagedSurfaceRenderElement<GlesRenderer> {
+impl<RE: RenderElement<GlesRenderer>> RenderElement<GlesRenderer>
+    for ColorManagedElement<GlesRenderer, RE>
+{
+    fn draw(
+        &self,
+        frame: &mut GlesFrame<'_, '_>,
+        src: Rectangle<f64, Buffer>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
+        cache: Option<&UserDataMap>,
+    ) -> Result<(), GlesError> {
+        frame.override_default_tex_program(self.program.clone(), self.compute_uniforms());
+        RenderElement::<GlesRenderer>::draw(
+            &self.inner,
+            frame,
+            src,
+            dst,
+            damage,
+            opaque_regions,
+            cache,
+        )?;
+        frame.clear_tex_program_override();
+        Ok(())
+    }
+
+    fn underlying_storage(&self, _renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
+        // If scanout for things other than Wayland buffers is implemented, this will need to take
+        // the target GPU into account.
+        None
+    }
+}
+
+impl<'render, RE: RenderElement<TtyRenderer<'render>>> RenderElement<TtyRenderer<'render>>
+    for ColorManagedElement<TtyRenderer<'render>, RE>
+{
+    fn draw(
+        &self,
+        frame: &mut TtyFrame<'render, '_, '_>,
+        src: Rectangle<f64, Buffer>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
+        cache: Option<&UserDataMap>,
+    ) -> Result<(), TtyRendererError<'render>> {
+        frame
+            .as_gles_frame()
+            .override_default_tex_program(self.program.clone(), self.compute_uniforms());
+        RenderElement::draw(&self.inner, frame, src, dst, damage, opaque_regions, cache)?;
+        frame.as_gles_frame().clear_tex_program_override();
+        Ok(())
+    }
+
+    fn underlying_storage(
+        &self,
+        _renderer: &mut TtyRenderer<'render>,
+    ) -> Option<UnderlyingStorage<'_>> {
+        // If scanout for things other than Wayland buffers is implemented, this will need to take
+        // the target GPU into account.
+        None
+    }
+}
+
+#[derive(Debug)]
+pub struct ColorManagedMemoryRenderElement<R: NiriRenderer> {
+    inner: MemoryRenderBufferRenderElement<R>,
+    program: GlesTexProgram,
+    input: Colorimetry,
+    output: Colorimetry,
+    input_tf: TransferFunction,
+    output_tf: TransferFunction,
+    input_to_output: Mat3,
+}
+
+impl<R: NiriRenderer> From<ColorManagedMemoryRenderElement<R>>
+    for MemoryRenderBufferRenderElement<R>
+{
+    fn from(value: ColorManagedMemoryRenderElement<R>) -> Self {
+        value.inner
+    }
+}
+
+impl<R: NiriRenderer> ColorManagedMemoryRenderElement<R> {
+    pub fn new(
+        elem: MemoryRenderBufferRenderElement<R>,
+        renderer: &mut R,
+        input: Colorimetry,
+        output: Colorimetry,
+    ) -> Self {
+        let input_to_output = conversion_matrix_from_to(&input.coordinates, &output.coordinates)
+            * luminance_scale_from_to(&input, &output);
+
+        Self {
+            inner: elem,
+            program: Self::shader(renderer).unwrap(),
+            input,
+            output,
+            input_tf: input.tf,
+            output_tf: output.tf,
+            input_to_output,
+        }
+    }
+
+    pub fn inner(&self) -> &MemoryRenderBufferRenderElement<R> {
+        &self.inner
+    }
+
+    pub fn input_output(&self) -> (Colorimetry, Colorimetry) {
+        (self.input, self.output)
+    }
+
+    pub fn shader(renderer: &mut R) -> Option<GlesTexProgram> {
+        Shaders::get(renderer.as_gles_renderer())
+            .color_manage
+            .clone()
+    }
+
+    fn compute_uniforms(&self) -> Vec<Uniform<'static>> {
+        vec![
+            Uniform::new("input_tf", self.input_tf.to_uniform()),
+            Uniform::new("output_tf", self.output_tf.to_uniform()),
+            mat3_uniform("input_to_output", self.input_to_output),
+        ]
+    }
+}
+
+impl<R: NiriRenderer> Element for ColorManagedMemoryRenderElement<R> {
+    fn id(&self) -> &Id {
+        self.inner.id()
+    }
+
+    fn current_commit(&self) -> CommitCounter {
+        self.inner.current_commit()
+    }
+
+    fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
+        self.inner.geometry(scale)
+    }
+
+    fn transform(&self) -> Transform {
+        self.inner.transform()
+    }
+
+    fn src(&self) -> Rectangle<f64, Buffer> {
+        self.inner.src()
+    }
+
+    fn damage_since(
+        &self,
+        scale: Scale<f64>,
+        commit: Option<CommitCounter>,
+    ) -> DamageSet<i32, Physical> {
+        self.inner.damage_since(scale, commit)
+    }
+
+    fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
+        self.inner.opaque_regions(scale)
+    }
+
+    fn alpha(&self) -> f32 {
+        self.inner.alpha()
+    }
+
+    fn kind(&self) -> Kind {
+        self.inner.kind()
+    }
+}
+
+impl RenderElement<GlesRenderer> for ColorManagedMemoryRenderElement<GlesRenderer> {
     fn draw(
         &self,
         frame: &mut GlesFrame<'_, '_>,
@@ -555,7 +770,7 @@ impl RenderElement<GlesRenderer> for ColorManagedSurfaceRenderElement<GlesRender
 }
 
 impl<'render> RenderElement<TtyRenderer<'render>>
-    for ColorManagedSurfaceRenderElement<TtyRenderer<'render>>
+    for ColorManagedMemoryRenderElement<TtyRenderer<'render>>
 {
     fn draw(
         &self,

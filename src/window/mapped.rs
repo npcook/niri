@@ -2,6 +2,7 @@ use std::cell::{Cell, Ref, RefCell};
 use std::time::Duration;
 
 use niri_config::{Color, Config, CornerRadius, GradientInterpolation, WindowRule};
+use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::desktop::space::SpaceElement as _;
@@ -30,15 +31,13 @@ use crate::layout::{
 use crate::niri_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
 use crate::render_helpers::border::BorderRenderElement;
-use crate::render_helpers::color_manage::{
-    ColorManagedSurfaceRenderElement, Colorimetry, OutputColorimetry,
-};
+use crate::render_helpers::color_manage::{ColorManagedElement, Colorimetry, OutputColorimetry};
 use crate::render_helpers::offscreen::OffscreenData;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::snapshot::RenderSnapshot;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::surface::{
-    push_elements_from_surface_tree, render_snapshot_from_surface_tree,
+    get_input_colorimetry, push_elements_from_surface_tree, render_snapshot_from_surface_tree,
 };
 use crate::render_helpers::xray::XrayPos;
 use crate::render_helpers::{background_effect, BakedBuffer, RenderCtx, RenderTarget};
@@ -519,6 +518,10 @@ impl Mapped {
         let radius = radius.fit_to(window_size.w as f32, window_size.h as f32);
         let location = self.window.geometry().loc.to_f64() - bbox.loc.to_logical(scale);
 
+        let output_colorimetry = self
+            .get_output_colorimetry()
+            .unwrap_or(Colorimetry::srgb_sdr());
+
         let use_border = |elem| {
             if let LayoutElementRenderElement::SolidColor(elem) = &elem {
                 // In this branch we're rendering a blocked-out window with a solid color. We need
@@ -540,6 +543,8 @@ impl Mapped {
                         radius,
                         scale.x as f32,
                         1.,
+                        Colorimetry::srgb_sdr(),
+                        output_colorimetry,
                     )
                     .with_location(geo.loc)
                     .into();
@@ -666,7 +671,8 @@ impl LayoutElement for Mapped {
         } else {
             let buf_pos = location - self.window.geometry().loc.to_f64();
             let surface = self.toplevel().wl_surface();
-            let mut push = |elem: ColorManagedSurfaceRenderElement<R>| push(elem.into());
+            let mut push =
+                |elem: ColorManagedElement<R, WaylandSurfaceRenderElement<R>>| push(elem.into());
             push_elements_from_surface_tree(
                 ctx.renderer,
                 surface,
@@ -674,6 +680,7 @@ impl LayoutElement for Mapped {
                 scale,
                 alpha,
                 Kind::ScanoutCandidate,
+                get_input_colorimetry(self.rules.colorspace, self.output_colorimetry.get()),
                 self.output_colorimetry.get(),
                 &mut push,
             )
@@ -713,6 +720,7 @@ impl LayoutElement for Mapped {
                 scale,
                 alpha,
                 Kind::ScanoutCandidate,
+                get_input_colorimetry(self.rules.colorspace, self.output_colorimetry.get()),
                 self.output_colorimetry.get(),
                 &mut |elem| push(elem.into()),
             );
@@ -974,6 +982,10 @@ impl LayoutElement for Mapped {
     fn output_leave(&self, output: &Output) {
         self.window.output_leave(output);
         self.output_colorimetry.set(None)
+    }
+
+    fn get_output_colorimetry(&self) -> Option<Colorimetry> {
+        self.output_colorimetry.get()
     }
 
     fn set_offscreen_data(&self, data: Option<OffscreenData>) {

@@ -209,6 +209,10 @@ impl LayoutElement for TestWindow {
 
     fn output_leave(&self, _output: &Output) {}
 
+    fn get_output_colorimetry(&self) -> Option<Colorimetry> {
+        None
+    }
+
     fn set_offscreen_data(&self, _data: Option<OffscreenData>) {}
 
     fn set_activated(&mut self, active: bool) {

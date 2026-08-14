@@ -22,6 +22,7 @@ use crate::animation::{Animation, Clock};
 use crate::input::swipe_tracker::SwipeTracker;
 use crate::layout::RenderLayer;
 use crate::niri_render_elements;
+use crate::render_helpers::color_manage::{Colorimetry, OutputColorimetry};
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::SolidColorRenderElement;
@@ -1106,6 +1107,12 @@ impl<W: LayoutElement> Monitor<W> {
 
         self.insert_hint_render_loc = None;
         if let Some(hint) = &self.insert_hint {
+            let output_colorimetry = self
+                .output
+                .user_data()
+                .get::<OutputColorimetry>()
+                .map(|colorimetry| colorimetry.colorimetry.lock().unwrap().clone())
+                .unwrap_or(Colorimetry::srgb_sdr());
             match hint.workspace {
                 InsertWorkspace::Existing(ws_id) => {
                     if let Some(idx) = self.idx_of_ws(ws_id) {
@@ -1134,6 +1141,8 @@ impl<W: LayoutElement> Monitor<W> {
                                 view_rect,
                                 hint.corner_radius,
                                 scale,
+                                Colorimetry::srgb_sdr(),
+                                output_colorimetry,
                             );
                             self.insert_hint_render_loc = Some(InsertHintRenderLoc {
                                 workspace: hint.workspace,
@@ -1174,6 +1183,8 @@ impl<W: LayoutElement> Monitor<W> {
                         view_rect,
                         CornerRadius::default(),
                         scale,
+                        Colorimetry::srgb_sdr(),
+                        output_colorimetry,
                     );
                     self.insert_hint_render_loc = Some(InsertHintRenderLoc {
                         workspace: hint.workspace,

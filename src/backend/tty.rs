@@ -416,6 +416,8 @@ struct ConnectorProperties<'a> {
     connector: connector::Handle,
     properties: Vec<(property::Info, property::RawValue)>,
     has_change: bool,
+    crtc: crtc::Handle,
+    crtc_properties: Vec<(property::Info, property::RawValue)>,
     requests: AtomicModeReq,
 }
 
@@ -693,7 +695,7 @@ impl Tty {
                         .map(|(crtc, surface)| (crtc, surface, device.known_crtcs.get(crtc)))
                     {
                         if let Ok(mut props) =
-                            ConnectorProperties::try_new(&device.drm, surface.connector)
+                            ConnectorProperties::try_new(&device.drm, surface.connector, *crtc)
                         {
                             let (max_bpc, hdr) = self
                                 .config
@@ -714,7 +716,7 @@ impl Tty {
                                 }
                                 (false, _) => SetHdr::Disable,
                             };
-                            set_connector_properties(&mut props, max_bpc, Some(set_hdr));
+                            set_connector_properties(&mut props, max_bpc, None);
                         } else {
                             warn!("failed to get connector properties");
                         }
@@ -1050,7 +1052,7 @@ impl Tty {
                                     metadata.desired_content_max_luminance,
                                 )
                             });
-                    let _mastering_luminances = luminances.map(|(min, _, max)| (min, max));
+                    let mastering_luminances = luminances.map(|(min, _, max)| (min, max));
                     let max_cll = 400f32;
                     let max_fall = 400f32;
                     // let chromacity = info
@@ -1084,8 +1086,8 @@ impl Tty {
                             tf: TransferFunction::St2084Pq,
                             coordinates: hdr_container.coordinates,
                             luminances: hdr_container.luminances,
-                            mastering_primaries: Some(hdr_container.coordinates),
-                            mastering_luminances: Some((0f32, 400f32)),
+                            mastering_primaries: Some(chromacity),
+                            mastering_luminances,
                             mastering_max_cll: Some(max_cll),
                             mastering_max_fall: Some(max_fall),
                         })
@@ -1443,8 +1445,8 @@ impl Tty {
         };
 
         let mut orientation = None;
-        if let Ok(mut props) = ConnectorProperties::try_new(&device.drm, connector.handle()) {
-            set_connector_properties(&mut props, config.max_bpc, Some(set_hdr));
+        if let Ok(mut props) = ConnectorProperties::try_new(&device.drm, connector.handle(), crtc) {
+            set_connector_properties(&mut props, config.max_bpc, None);
 
             match props.get_panel_orientation() {
                 Ok(x) => orientation = Some(x),
@@ -1497,6 +1499,15 @@ impl Tty {
             Err(err) => {
                 warn!("error querying for VRR support: {err:?}");
             }
+        }
+
+        match set_hdr {
+            SetHdr::Enable(colorimetry) => {
+                if let Err(err) = surface.use_hdr(Some(create_hdr_output_metadata(colorimetry))) {
+                    warn!("error enabling HDR: {err:?}")
+                }
+            }
+            _ => {}
         }
 
         // Update the output mode.
@@ -2332,6 +2343,11 @@ impl Tty {
                     });
                 let vrr_enabled = surface.is_some_and(|surface| surface.compositor.vrr_enabled());
 
+                let hdr_supported = surface
+                    .and_then(|surface| surface.compositor.hdr_supported(connector.handle()).ok())
+                    .unwrap_or(false);
+                let hdr_enabled = surface.is_some_and(|surface| surface.compositor.hdr_enabled());
+
                 let logical = niri
                     .global_space
                     .outputs()
@@ -2347,7 +2363,8 @@ impl Tty {
                     OutputId::next()
                 });
 
-                let props = ConnectorProperties::try_new(&device.drm, connector.handle()).ok();
+                let props =
+                    ConnectorProperties::try_new(&device.drm, connector.handle(), crtc).ok();
                 let max_bpc = props.as_ref().and_then(|p| p.find(c"max bpc").ok());
                 let max_bpc = max_bpc.and_then(|(info, value)| {
                     info.value_type()
@@ -2369,6 +2386,8 @@ impl Tty {
                     vrr_enabled,
                     logical,
                     max_bpc,
+                    hdr_supported,
+                    hdr_enabled,
                 };
 
                 ipc_outputs.insert(id, ipc_output);
@@ -2602,15 +2621,21 @@ impl Tty {
                     }
                     (false, _) => (SetHdr::Disable, &sdr_colorimetry),
                 };
-                if let Ok(mut props) = ConnectorProperties::try_new(&device.drm, surface.connector)
-                {
-                    info!("on_output_config_changed");
-                    set_connector_properties(&mut props, config.max_bpc, Some(set_hdr));
-                } else {
-                    warn!("failed to get connector properties");
-                }
+                let enable_hdr = match set_hdr {
+                    SetHdr::Enable(_) => true,
+                    _ => false,
+                };
+                // if let Ok(mut props) =
+                //     ConnectorProperties::try_new(&device.drm, surface.connector, crtc)
+                // {
+                //     info!("on_output_config_changed");
+                //     set_connector_properties(&mut props, config.max_bpc, None);
+                // } else {
+                //     warn!("failed to get connector properties");
+                // }
 
                 let change_mode = surface.compositor.pending_mode() != mode;
+                let change_hdr = surface.compositor.hdr_enabled() != enable_hdr;
 
                 let vrr_enabled = surface.compositor.vrr_enabled();
                 let change_always_vrr = vrr_enabled != config.is_vrr_always_on();
@@ -2696,6 +2721,18 @@ impl Tty {
                         surface.compositor.vrr_enabled(),
                     );
                     niri.output_resized(&output);
+                }
+
+                if change_hdr {
+                    let output_metadata = if let SetHdr::Enable(colorimetry) = set_hdr {
+                        Some(create_hdr_output_metadata(colorimetry))
+                    } else {
+                        None
+                    };
+                    if let Err(err) = surface.compositor.use_hdr(output_metadata) {
+                        warn!("error changing hdr: {err:?}");
+                    }
+                    niri.colorimetry_updated(&output, target_colorimetry);
                 }
             }
 
@@ -3512,33 +3549,58 @@ fn get_edid_info(
     libdisplay_info::info::Info::parse_edid(&data).context("error parsing EDID")
 }
 
+fn get_property_values<'a, T: ResourceHandle>(
+    device: &'a DrmDevice,
+    handle: T,
+) -> anyhow::Result<Vec<(property::Info, u64)>> {
+    let prop_vals = device
+        .get_properties(handle)
+        .context("error getting properties")?;
+
+    let mut properties = Vec::new();
+
+    for (prop, value) in prop_vals {
+        let info = device
+            .get_property(prop)
+            .context("error getting property")?;
+
+        properties.push((info, value));
+    }
+    Ok(properties)
+}
+
 impl<'a> ConnectorProperties<'a> {
-    fn try_new(device: &'a DrmDevice, connector: connector::Handle) -> anyhow::Result<Self> {
-        let prop_vals = device
-            .get_properties(connector)
-            .context("error getting properties")?;
-
-        let mut properties = Vec::new();
-
-        for (prop, value) in prop_vals {
-            let info = device
-                .get_property(prop)
-                .context("error getting property")?;
-
-            properties.push((info, value));
-        }
-
+    fn try_new(
+        device: &'a DrmDevice,
+        connector: connector::Handle,
+        crtc: crtc::Handle,
+    ) -> anyhow::Result<Self> {
         Ok(Self {
             device,
             connector,
-            properties,
+            properties: get_property_values(device, connector)?,
             has_change: false,
+            crtc,
+            crtc_properties: get_property_values(device, crtc)?,
             requests: AtomicModeReq::new(),
         })
     }
 
     fn find(&self, name: &std::ffi::CStr) -> anyhow::Result<&(property::Info, property::RawValue)> {
         for prop in &self.properties {
+            if prop.0.name() == name {
+                return Ok(prop);
+            }
+        }
+
+        Err(anyhow!("couldn't find property: {name:?}"))
+    }
+
+    fn find_crtc(
+        &self,
+        name: &std::ffi::CStr,
+    ) -> anyhow::Result<&(property::Info, property::RawValue)> {
+        for prop in &self.crtc_properties {
             if prop.0.name() == name {
                 return Ok(prop);
             }
@@ -3565,50 +3627,27 @@ impl<'a> ConnectorProperties<'a> {
         }
     }
 
-    fn enable_hdr(&mut self, colorimetry: &Colorimetry) -> anyhow::Result<()> {
-        fn f32_to_u16(coord: f32) -> u16 {
-            (coord * 50000.0) as u16
-        }
+    fn common_hdr(&mut self) -> anyhow::Result<()> {
+        let (info, value) = self.find(c"CRTC_ID")?;
+        self.requests.add_property(
+            self.connector,
+            info.handle(),
+            property::Value::CRTC(Some(self.crtc)),
+        );
 
-        const STATIC_METADATA_TYPE_1: u8 = 0;
-        // const EOTF_SDR: u8 = 0;
-        const EOTF_ST_2084: u8 = 2;
-        let display_primaries = [
-            hdr_metadata_infoframe__bindgen_ty_1 {
-                x: f32_to_u16(colorimetry.coordinates.r.0),
-                y: f32_to_u16(colorimetry.coordinates.r.1),
-            },
-            hdr_metadata_infoframe__bindgen_ty_1 {
-                x: f32_to_u16(colorimetry.coordinates.g.0),
-                y: f32_to_u16(colorimetry.coordinates.g.1),
-            },
-            hdr_metadata_infoframe__bindgen_ty_1 {
-                x: f32_to_u16(colorimetry.coordinates.b.0),
-                y: f32_to_u16(colorimetry.coordinates.b.1),
-            },
-        ];
-        let mut output_metadata: hdr_output_metadata = hdr_output_metadata {
-            metadata_type: STATIC_METADATA_TYPE_1 as u32,
-            __bindgen_anon_1: hdr_output_metadata__bindgen_ty_1 {
-                hdmi_metadata_type1: drm_ffi::hdr_metadata_infoframe {
-                    eotf: EOTF_ST_2084,
-                    metadata_type: STATIC_METADATA_TYPE_1,
-                    display_primaries,
-                    white_point: hdr_metadata_infoframe__bindgen_ty_2 {
-                        x: f32_to_u16(colorimetry.coordinates.w.0),
-                        y: f32_to_u16(colorimetry.coordinates.w.1),
-                    },
-                    max_display_mastering_luminance: colorimetry
-                        .mastering_luminances
-                        .map_or(0, |(_, max)| max as u16),
-                    min_display_mastering_luminance: colorimetry
-                        .mastering_luminances
-                        .map_or(0, |(min, _)| (min * 10000.0) as u16),
-                    max_cll: colorimetry.mastering_max_cll.map_or(0, |x| x as u16),
-                    max_fall: colorimetry.mastering_max_fall.map_or(0, |x| x as u16),
-                },
-            },
-        };
+        let (info, value) = self.find_crtc(c"DEGAMMA_LUT")?;
+        self.requests
+            .add_property(self.crtc, info.handle(), property::Value::Blob(0));
+
+        let (info, value) = self.find_crtc(c"ACTIVE")?;
+        self.requests
+            .add_property(self.crtc, info.handle(), property::Value::UnsignedRange(1));
+        Ok(())
+    }
+
+    fn enable_hdr(&mut self, colorimetry: &Colorimetry) -> anyhow::Result<()> {
+        self.common_hdr()?;
+        let mut output_metadata = create_hdr_output_metadata(colorimetry);
         let output_metadata = unsafe {
             std::slice::from_raw_parts_mut(
                 &mut output_metadata as *mut hdr_output_metadata as *mut u8,
@@ -3649,6 +3688,7 @@ impl<'a> ConnectorProperties<'a> {
     }
 
     fn reset_hdr(&mut self) -> anyhow::Result<()> {
+        self.common_hdr()?;
         let (info, value) = self.find(c"HDR_OUTPUT_METADATA")?;
 
         let property::ValueType::Blob = info.value_type() else {
@@ -3656,7 +3696,7 @@ impl<'a> ConnectorProperties<'a> {
         };
         if *value != 0 {
             self.requests
-                .add_raw_property(self.connector.into(), info.handle(), 0);
+                .add_property(self.connector, info.handle(), property::Value::Blob(0));
             self.has_change = true;
         }
 
@@ -3664,14 +3704,14 @@ impl<'a> ConnectorProperties<'a> {
         let property::ValueType::Enum(enum_values) = info.value_type() else {
             bail!("wrong property type")
         };
-        let Some(bt2020_rgb_value) = find_enum_value(&enum_values, c"BT2020_RGB") else {
-            bail!("couldn't find BT2020_RGB")
+        let Some(default_value) = find_enum_value(&enum_values, c"Default") else {
+            bail!("couldn't find Default")
         };
-        if *value != bt2020_rgb_value.value() {
+        if *value != default_value.value() {
             self.requests.add_property(
                 self.connector,
                 info.handle(),
-                property::Value::Enum(Some(bt2020_rgb_value)),
+                property::Value::Enum(Some(default_value)),
             );
             self.has_change = true;
         }
@@ -3715,6 +3755,48 @@ impl<'a> ConnectorProperties<'a> {
         }
 
         Ok(())
+    }
+}
+
+fn create_hdr_output_metadata(colorimetry: &Colorimetry) -> hdr_output_metadata {
+    fn f32_to_u16(coord: f32) -> u16 {
+        (coord * 50000.0) as u16
+    }
+
+    const STATIC_METADATA_TYPE_1: u8 = 0;
+    // const EOTF_SDR: u8 = 0;
+    const EOTF_ST_2084: u8 = 2;
+    let display_primaries = [
+        hdr_metadata_infoframe__bindgen_ty_1 {
+            x: f32_to_u16(colorimetry.coordinates.r.0),
+            y: f32_to_u16(colorimetry.coordinates.r.1),
+        },
+        hdr_metadata_infoframe__bindgen_ty_1 {
+            x: f32_to_u16(colorimetry.coordinates.g.0),
+            y: f32_to_u16(colorimetry.coordinates.g.1),
+        },
+        hdr_metadata_infoframe__bindgen_ty_1 {
+            x: f32_to_u16(colorimetry.coordinates.b.0),
+            y: f32_to_u16(colorimetry.coordinates.b.1),
+        },
+    ];
+    hdr_output_metadata {
+        metadata_type: STATIC_METADATA_TYPE_1 as u32,
+        __bindgen_anon_1: hdr_output_metadata__bindgen_ty_1 {
+            hdmi_metadata_type1: drm_ffi::hdr_metadata_infoframe {
+                eotf: EOTF_ST_2084,
+                metadata_type: STATIC_METADATA_TYPE_1,
+                display_primaries,
+                white_point: hdr_metadata_infoframe__bindgen_ty_2 {
+                    x: f32_to_u16(colorimetry.coordinates.w.0),
+                    y: f32_to_u16(colorimetry.coordinates.w.1),
+                },
+                max_display_mastering_luminance: 1000,
+                min_display_mastering_luminance: 0,
+                max_cll: 1000,
+                max_fall: 250,
+            },
+        },
     }
 }
 

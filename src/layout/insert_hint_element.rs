@@ -2,7 +2,7 @@ use niri_config::CornerRadius;
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use super::focus_ring::{FocusRing, FocusRingRenderElement};
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::{color_manage::Colorimetry, renderer::NiriRenderer};
 
 #[derive(Debug)]
 pub struct InsertHintElement {
@@ -50,9 +50,12 @@ impl InsertHintElement {
         view_rect: Rectangle<f64, Logical>,
         radius: CornerRadius,
         scale: f64,
+        input: Colorimetry,
+        output: Colorimetry,
     ) {
-        self.inner
-            .update_render_elements(size, true, false, false, view_rect, radius, scale, 1.);
+        self.inner.update_render_elements(
+            size, true, false, false, view_rect, radius, scale, 1., input, output,
+        );
     }
 
     pub fn render(

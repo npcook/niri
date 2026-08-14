@@ -79,3 +79,10 @@ vec3 linear_to_color(vec3 color_linear) {
 vec3 convert_color(vec3 color) {
     return linear_to_color(input_to_output * color_to_linear(color));
 }
+
+vec4 convert_color_with_alpha(vec4 color) {
+    if (color.a == 0.0) {
+        return vec4(0.0);
+    }
+    return vec4(convert_color(color.rgb / color.a) * color.a, color.a);
+}

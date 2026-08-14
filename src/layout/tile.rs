@@ -21,6 +21,7 @@ use crate::niri_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
 use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::clipped_surface::{ClippedSurfaceRenderElement, RoundedCornerDamage};
+use crate::render_helpers::color_manage::{Colorimetry, TransferFunction};
 use crate::render_helpers::damage::ExtraDamage;
 use crate::render_helpers::offscreen::{OffscreenBuffer, OffscreenRenderElement};
 use crate::render_helpers::renderer::NiriRenderer;
@@ -504,6 +505,11 @@ impl<W: LayoutElement> Tile<W> {
             .geometry_corner_radius()
             .expanded_by(border_width as f32)
             .scaled_by(1. - expanded_progress as f32);
+
+        let output_colorimetry = self
+            .window
+            .get_output_colorimetry()
+            .unwrap_or(Colorimetry::srgb_sdr());
         self.border.update_render_elements(
             border_window_size,
             is_active,
@@ -516,6 +522,8 @@ impl<W: LayoutElement> Tile<W> {
             radius,
             self.scale,
             1. - expanded_progress as f32,
+            Colorimetry::srgb_sdr(),
+            output_colorimetry,
         );
 
         let radius = if self.visual_border_width().is_some() {
@@ -548,6 +556,8 @@ impl<W: LayoutElement> Tile<W> {
             radius,
             self.scale,
             1. - expanded_progress as f32,
+            Colorimetry::srgb_sdr(),
+            output_colorimetry,
         );
 
         self.fullscreen_backdrop.resize(animated_tile_size);
@@ -1209,27 +1219,6 @@ impl<W: LayoutElement> Tile<W> {
 
             let clip_shader = ClippedSurfaceRenderElement::shader(ctx.renderer).cloned();
             let clip = |elem| match elem {
-                LayoutElementRenderElement::Wayland(elem) => {
-                    // If we should clip to geometry, render a clipped window.
-                    if clip_to_geometry {
-                        if let Some(shader) = clip_shader.clone() {
-                            if ClippedSurfaceRenderElement::will_clip(&elem, scale, geo, radius) {
-                                return ClippedSurfaceRenderElement::new(
-                                    elem,
-                                    scale,
-                                    geo,
-                                    shader.clone(),
-                                    radius,
-                                    None,
-                                )
-                                .into();
-                            }
-                        }
-                    }
-
-                    // Otherwise, render it normally.
-                    LayoutElementRenderElement::Wayland(elem).into()
-                }
                 LayoutElementRenderElement::SolidColor(elem) => {
                     // In this branch we're rendering a blocked-out window with a solid
                     // color. We need to render it with a rounded corner shader even if
@@ -1238,6 +1227,10 @@ impl<W: LayoutElement> Tile<W> {
                     // user-provided radius, so our blocked-out rendering should match that
                     // radius.
                     if radius != CornerRadius::default() && has_border_shader {
+                        let output_colorimetry = self
+                            .window
+                            .get_output_colorimetry()
+                            .unwrap_or(Colorimetry::srgb_sdr());
                         return BorderRenderElement::new(
                             geo.size,
                             Rectangle::from_size(geo.size),
@@ -1250,6 +1243,8 @@ impl<W: LayoutElement> Tile<W> {
                             radius,
                             scale.x as f32,
                             1.,
+                            Colorimetry::srgb_sdr(),
+                            output_colorimetry,
                         )
                         .with_location(geo.loc)
                         .into();
@@ -1319,6 +1314,10 @@ impl<W: LayoutElement> Tile<W> {
 
                 let size = self.fullscreen_backdrop.size();
                 let color = self.fullscreen_backdrop.color();
+                let output_colorimetry = self
+                    .window
+                    .get_output_colorimetry()
+                    .unwrap_or(Colorimetry::srgb_sdr());
                 let elem = BorderRenderElement::new(
                     size,
                     Rectangle::from_size(size),
@@ -1331,6 +1330,8 @@ impl<W: LayoutElement> Tile<W> {
                     radius,
                     scale.x as f32,
                     alpha,
+                    Colorimetry::srgb_sdr(),
+                    output_colorimetry,
                 )
                 .with_location(location);
                 push(elem.into());

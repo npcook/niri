@@ -75,7 +75,7 @@ use smithay::utils::{
     Transform, SERIAL_COUNTER,
 };
 use smithay::wayland::background_effect::BackgroundEffectState;
-use smithay::wayland::color::management::ColorManagementState;
+use smithay::wayland::color::management::{ColorManagementState, get_output_description, update_output_desc, update_surface_preferred};
 use smithay::wayland::color::representation::ColorRepresentationState;
 use smithay::wayland::compositor::{
     with_states, with_surface_tree_downward, CompositorClientState, CompositorHandler,
@@ -157,12 +157,12 @@ use crate::protocols::output_management::OutputManagementManagerState;
 use crate::protocols::screencopy::{Screencopy, ScreencopyBuffer, ScreencopyManagerState};
 use crate::protocols::virtual_pointer::VirtualPointerManagerState;
 use crate::render_helpers::blur::BlurOptions;
-use crate::render_helpers::color_manage::{ColorManagedSurfaceRenderElement, OutputColorimetry};
+use crate::render_helpers::color_manage::{ColorManagedElement, Colorimetry, OutputColorimetry};
 use crate::render_helpers::debug::push_opaque_regions;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
-use crate::render_helpers::surface::push_elements_from_surface_tree;
+use crate::render_helpers::surface::{push_elements_from_surface_tree, InputColorimetry};
 use crate::render_helpers::texture::TextureBuffer;
 use crate::render_helpers::xray::{Xray, XrayPos};
 use crate::render_helpers::{
@@ -2421,12 +2421,14 @@ impl Niri {
                 Feature::SetPrimaries,
                 Feature::SetLuminances,
                 Feature::SetMasteringDisplayPrimaries,
+                Feature::WindowsScrgb,
             ]
             .into_iter(),
             vec![
                 TransferFunction::Srgb,
                 TransferFunction::St2084Pq,
                 TransferFunction::Gamma22,
+                TransferFunction::ExtLinear,
             ]
             .into_iter(),
             vec![
@@ -3101,6 +3103,33 @@ impl Niri {
                 self.queue_redraw_all();
                 return;
             }
+        }
+
+        self.queue_redraw(output);
+    }
+
+    pub fn colorimetry_updated(&mut self, output: &Output, target_colorimetry: &Colorimetry) {
+        update_output_desc(
+            output,
+            self.color_management_state
+                .build_description(target_colorimetry.into()),
+        );
+
+        {
+            let layer_map = layer_map_for_output(output);
+            for layer in layer_map.layers() {
+                if let Some(mapped) = self.mapped_layer_surfaces.get_mut(layer) {
+                    mapped.update_colorimetry(Some(*target_colorimetry));
+                }
+                if let Some(output_desc) = get_output_description(output) {
+                    layer.with_surfaces(|_, data| {
+                        update_surface_preferred(data, output_desc.clone());
+                    });
+                }
+            }
+        }
+        for window in self.layout.windows_for_output(output) {
+            window.output_enter(output);
         }
 
         self.queue_redraw(output);
@@ -3808,6 +3837,7 @@ impl Niri {
                     output_scale,
                     1.,
                     Kind::Cursor,
+                    InputColorimetry::Default(Colorimetry::srgb_sdr()),
                     colorimetry,
                     &mut |elem| push(elem.into()),
                 );
@@ -3832,7 +3862,15 @@ impl Niri {
                     None,
                     Kind::Cursor,
                 ) {
-                    Ok(element) => push(element.into()),
+                    Ok(element) => push(
+                        ColorManagedElement::new(
+                            element,
+                            renderer,
+                            Colorimetry::srgb_sdr(),
+                            colorimetry.unwrap_or(Colorimetry::srgb_sdr()),
+                        )
+                        .into(),
+                    ),
                     Err(err) => {
                         warn!("error importing a cursor texture: {err:?}");
                     }
@@ -3850,6 +3888,7 @@ impl Niri {
                 output_scale,
                 1.,
                 Kind::ScanoutCandidate,
+                InputColorimetry::Default(Colorimetry::srgb_sdr()),
                 colorimetry,
                 &mut |elem| push(elem.into()),
             );
@@ -4336,6 +4375,7 @@ impl Niri {
                     output_scale,
                     1.,
                     Kind::ScanoutCandidate,
+                    InputColorimetry::Default(Colorimetry::srgb_sdr()),
                     colorimetry,
                     &mut |elem| push(elem.into()),
                 );
@@ -6597,9 +6637,8 @@ fn scale_relocate_crop<E: Element>(
 
 niri_render_elements! {
     PointerRenderElements<R> => {
-        Wayland = WaylandSurfaceRenderElement<R>,
-        NamedPointer = MemoryRenderBufferRenderElement<R>,
-        ColorManaged = ColorManagedSurfaceRenderElement<R>,
+        NamedPointer = ColorManagedElement<R, MemoryRenderBufferRenderElement<R>>,
+        ColorManaged = ColorManagedElement<R, WaylandSurfaceRenderElement<R>>,
     }
 }
 
@@ -6622,7 +6661,7 @@ niri_render_elements! {
             SolidColorRenderElement
         >>>,
         Pointer = PointerRenderElements<R>,
-        Wayland = ColorManagedSurfaceRenderElement<R>,
+        Wayland = ColorManagedElement<R, WaylandSurfaceRenderElement<R>>,
         SolidColor = SolidColorRenderElement,
         ScreenshotUi = ScreenshotUiRenderElement,
         WindowMruUi = WindowMruUiRenderElement<R>,

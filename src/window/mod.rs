@@ -3,8 +3,8 @@ use std::cmp::{max, min};
 use niri_config::utils::MergeWith as _;
 use niri_config::window_rule::{Match, WindowRule};
 use niri_config::{
-    BackgroundEffect, BlockOutFrom, BorderRule, CornerRadius, FloatingPosition, PresetSize,
-    ResolvedPopupsRules, ShadowRule, TabIndicatorRule,
+    BackgroundEffect, BlockOutFrom, BorderRule, Colorspace, CornerRadius, FloatingPosition,
+    PresetSize, ResolvedPopupsRules, ShadowRule, TabIndicatorRule,
 };
 use niri_ipc::ColumnDisplay;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
@@ -125,6 +125,8 @@ pub struct ResolvedWindowRules {
 
     /// Rules for this window's popups.
     pub popups: ResolvedPopupsRules,
+
+    pub colorspace: Option<Colorspace>,
 }
 
 impl<'a> WindowRef<'a> {
@@ -308,6 +310,10 @@ impl ResolvedWindowRules {
                     .merge_with(&rule.background_effect);
 
                 resolved.popups.merge_with(&rule.popups);
+
+                if let Some(x) = rule.colorspace {
+                    resolved.colorspace = Some(x);
+                }
             }
 
             resolved.open_on_output = open_on_output.map(|x| x.to_owned());

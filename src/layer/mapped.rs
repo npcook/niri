@@ -12,11 +12,11 @@ use crate::animation::Clock;
 use crate::layout::shadow::Shadow;
 use crate::niri_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
-use crate::render_helpers::color_manage::{ColorManagedSurfaceRenderElement, Colorimetry};
+use crate::render_helpers::color_manage::{ColorManagedElement, Colorimetry};
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
-use crate::render_helpers::surface::push_elements_from_surface_tree;
+use crate::render_helpers::surface::{push_elements_from_surface_tree, InputColorimetry};
 use crate::render_helpers::xray::XrayPos;
 use crate::render_helpers::{background_effect, RenderCtx};
 use crate::utils::{baba_is_float_offset, round_logical_in_physical};
@@ -60,11 +60,10 @@ pub struct MappedLayer {
 
 niri_render_elements! {
     LayerSurfaceRenderElement<R> => {
-        Wayland = WaylandSurfaceRenderElement<R>,
         SolidColor = SolidColorRenderElement,
         Shadow = ShadowRenderElement,
         BackgroundEffect = BackgroundEffectElement,
-        ColorManaged = ColorManagedSurfaceRenderElement<R>,
+        ColorManaged = ColorManagedElement<R, WaylandSurfaceRenderElement<R>>,
     }
 }
 
@@ -118,6 +117,10 @@ impl MappedLayer {
     pub fn update_sizes(&mut self, view_size: Size<f64, Logical>, scale: f64) {
         self.view_size = view_size;
         self.scale = scale;
+    }
+
+    pub fn update_colorimetry(&mut self, output_colorimetry: Option<Colorimetry>) {
+        self.output_colorimetry = output_colorimetry;
     }
 
     pub fn update_render_elements(&mut self, size: Size<f64, Logical>) {
@@ -233,6 +236,7 @@ impl MappedLayer {
                 scale,
                 alpha,
                 Kind::ScanoutCandidate,
+                InputColorimetry::Default(Colorimetry::srgb_sdr()),
                 self.output_colorimetry,
                 &mut |elem| push(elem.into()),
             );
@@ -303,6 +307,7 @@ impl MappedLayer {
                 scale,
                 alpha,
                 Kind::ScanoutCandidate,
+                InputColorimetry::Default(Colorimetry::srgb_sdr()),
                 self.output_colorimetry,
                 &mut |elem| push(elem.into()),
             );

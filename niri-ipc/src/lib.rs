@@ -1108,7 +1108,7 @@ pub enum OutputAction {
         /// HDR mode to set.
         #[cfg_attr(feature = "clap", command(flatten))]
         hdr: HdrToSet,
-    }
+    },
 }
 
 /// Output mode to set.
@@ -1260,6 +1260,10 @@ pub struct Output {
     pub logical: Option<LogicalOutput>,
     /// Maximum bits per channel (bit depth), if known.
     pub max_bpc: Option<u8>,
+    /// Whether high dynamic range is supported on the output.
+    pub hdr_supported: bool,
+    /// Whether high dynamic range is enabled on the output.
+    pub hdr_enabled: bool,
 }
 
 /// Output mode.

@@ -569,6 +569,8 @@ fn print_output(output: Output) -> anyhow::Result<()> {
         vrr_enabled,
         logical,
         max_bpc,
+        hdr_supported,
+        hdr_enabled,
     } = output;
 
     let serial = serial.as_deref().unwrap_or("Unknown");
@@ -618,6 +620,13 @@ fn print_output(output: Output) -> anyhow::Result<()> {
         println!("  Variable refresh rate: supported, {enabled}");
     } else {
         println!("  Variable refresh rate: not supported");
+    }
+
+    if hdr_supported {
+        let enabled = if hdr_enabled { "enabled" } else { "disabled" };
+        println!("  High dynamic range: supported, {enabled}");
+    } else {
+        println!("  High dynamic range: not supported");
     }
 
     if let Some((width, height)) = physical_size {

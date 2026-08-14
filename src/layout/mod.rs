@@ -60,7 +60,7 @@ use crate::input::swipe_tracker::SwipeTracker;
 use crate::layout::scrolling::ScrollDirection;
 use crate::niri_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
-use crate::render_helpers::color_manage::ColorManagedSurfaceRenderElement;
+use crate::render_helpers::color_manage::{ColorManagedElement, Colorimetry};
 use crate::render_helpers::offscreen::OffscreenData;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::snapshot::RenderSnapshot;
@@ -113,10 +113,9 @@ pub struct SizeFrac;
 
 niri_render_elements! {
     LayoutElementRenderElement<R> => {
-        Wayland = WaylandSurfaceRenderElement<R>,
         SolidColor = SolidColorRenderElement,
         BackgroundEffect = BackgroundEffectElement,
-        ColorManaged = ColorManagedSurfaceRenderElement<R>,
+        ColorManaged = ColorManagedElement<R, WaylandSurfaceRenderElement<R>>,
     }
 }
 
@@ -239,6 +238,7 @@ pub trait LayoutElement {
     fn set_preferred_scale_transform(&self, scale: output::Scale, transform: Transform);
     fn output_enter(&self, output: &Output);
     fn output_leave(&self, output: &Output);
+    fn get_output_colorimetry(&self) -> Option<Colorimetry>;
     fn set_offscreen_data(&self, data: Option<OffscreenData>);
     fn set_activated(&mut self, active: bool);
     fn set_active_in_column(&mut self, active: bool);
