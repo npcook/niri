@@ -1,4 +1,5 @@
 pub mod background_effect;
+mod color;
 mod compositor;
 pub mod image_copy_capture;
 mod layer_shell;

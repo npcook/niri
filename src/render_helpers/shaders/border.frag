@@ -59,14 +59,6 @@ vec4 premul_mix_unpremul_lch(vec4 color1, vec4 color2, float ratio) {
     return unpremul_lch(mixed);
 }
 
-vec3 srgb_to_linear(vec3 color) {
-    return pow(color, vec3(2.2));
-}
-
-vec3 linear_to_srgb(vec3 color) {
-    return pow(color, vec3(1.0 / 2.2));
-}
-
 vec3 lab_to_lch(vec3 color) {
     float c = sqrt(pow(color.y, 2.0) + pow(color.z, 2.0));
     float h = degrees(atan(color.z, color.y)) ;
@@ -226,7 +218,7 @@ void main() {
         }
     }
 
-    color = color * niri_alpha;
+    color = convert_color_with_alpha(color * niri_alpha);
 
 #if defined(DEBUG_FLAGS)
     if (niri_tint == 1.0)

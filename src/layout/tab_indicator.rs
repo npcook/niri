@@ -9,6 +9,7 @@ use super::LayoutElement;
 use crate::animation::{Animation, Clock};
 use crate::niri_render_elements;
 use crate::render_helpers::border::BorderRenderElement;
+use crate::render_helpers::color_manage::ColorMapping;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::utils::{
     floor_logical_in_physical_max1, round_logical_in_physical, round_logical_in_physical_max1,
@@ -265,6 +266,7 @@ impl TabIndicator {
                 radius,
                 scale as f32,
                 1.,
+                ColorMapping::input_output(None, None),
             );
         }
     }

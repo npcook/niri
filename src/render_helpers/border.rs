@@ -16,6 +16,7 @@ use super::renderer::NiriRenderer;
 use super::shader_element::ShaderRenderElement;
 use super::shaders::{mat3_uniform, ProgramType, Shaders};
 use crate::backend::tty::{TtyFrame, TtyRenderer, TtyRendererError};
+use crate::render_helpers::color_manage::ColorMapping;
 use crate::render_helpers::renderer::AsGlesFrame as _;
 
 /// Renders a wide variety of borders and border parts.
@@ -30,7 +31,7 @@ pub struct BorderRenderElement {
     params: Parameters,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct Parameters {
     size: Size<f64, Logical>,
     gradient_area: Rectangle<f64, Logical>,
@@ -44,6 +45,7 @@ struct Parameters {
     // Should only be used for visual improvements, i.e. corner radius anti-aliasing.
     scale: f32,
     alpha: f32,
+    mapping: ColorMapping,
 }
 
 impl BorderRenderElement {
@@ -60,6 +62,7 @@ impl BorderRenderElement {
         corner_radius: CornerRadius,
         scale: f32,
         alpha: f32,
+        mapping: ColorMapping,
     ) -> Self {
         let inner = ShaderRenderElement::empty(ProgramType::Border, Kind::Unspecified);
         let mut rv = Self {
@@ -76,6 +79,7 @@ impl BorderRenderElement {
                 corner_radius,
                 scale,
                 alpha,
+                mapping,
             },
         };
         rv.update_inner();
@@ -98,6 +102,7 @@ impl BorderRenderElement {
                 corner_radius: Default::default(),
                 scale: 1.,
                 alpha: 1.,
+                mapping: Default::default(),
             },
         }
     }
@@ -120,6 +125,7 @@ impl BorderRenderElement {
         corner_radius: CornerRadius,
         scale: f32,
         alpha: f32,
+        mapping: ColorMapping,
     ) {
         let params = Parameters {
             size,
@@ -133,6 +139,7 @@ impl BorderRenderElement {
             corner_radius,
             scale,
             alpha,
+            mapping,
         };
         if self.params == params {
             return;
@@ -155,12 +162,13 @@ impl BorderRenderElement {
             corner_radius,
             scale,
             alpha,
-        } = self.params;
+            mapping,
+        } = &self.params;
 
         let grad_offset = geometry.loc - gradient_area.loc;
         let grad_offset = Vec2::new(grad_offset.x as f32, grad_offset.y as f32);
 
-        let grad_dir = Vec2::from_angle(angle);
+        let grad_dir = Vec2::from_angle(*angle);
 
         let (w, h) = (gradient_area.size.w as f32, gradient_area.size.h as f32);
 
@@ -197,10 +205,10 @@ impl BorderRenderElement {
         };
 
         self.inner.update(
-            size,
+            *size,
             None,
-            scale,
-            alpha,
+            *scale,
+            *alpha,
             Rc::new([
                 Uniform::new("colorspace", colorspace),
                 Uniform::new("hue_interpolation", hue_interpolation),
@@ -211,8 +219,11 @@ impl BorderRenderElement {
                 Uniform::new("grad_vec", grad_vec.to_array()),
                 mat3_uniform("input_to_geo", input_to_geo),
                 Uniform::new("geo_size", geo_size.to_array()),
-                Uniform::new("outer_radius", <[f32; 4]>::from(corner_radius)),
-                Uniform::new("border_width", border_width),
+                Uniform::new("outer_radius", <[f32; 4]>::from(*corner_radius)),
+                Uniform::new("border_width", *border_width),
+                Uniform::new("input_tf", mapping.input_tf.to_uniform()),
+                Uniform::new("output_tf", mapping.output_tf.to_uniform()),
+                mat3_uniform("input_to_output", mapping.input_to_output),
             ]),
             HashMap::new(),
         );

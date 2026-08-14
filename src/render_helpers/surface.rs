@@ -1,11 +1,16 @@
+use niri_config::Colorspace;
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::backend::renderer::utils::{import_surface, RendererSurfaceStateUserData};
-use smithay::backend::renderer::{ImportAll, Renderer};
+use smithay::backend::renderer::Renderer;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Physical, Point, Scale};
+use smithay::wayland::color::management::get_surface_description_from_surface_data;
 use smithay::wayland::compositor::{with_surface_tree_downward, TraversalAction};
+
+use crate::render_helpers::color_manage::{ColorManagedElement, ColorMapping, Colorimetry};
+use crate::render_helpers::renderer::NiriRenderer;
 
 use super::texture::TextureBuffer;
 use super::BakedBuffer;
@@ -81,6 +86,33 @@ pub fn render_snapshot_from_surface_tree(
     );
 }
 
+#[derive(Debug)]
+pub enum InputColorimetry {
+    Default(Colorimetry),
+    Override(Colorimetry),
+}
+
+impl Default for InputColorimetry {
+    fn default() -> Self {
+        InputColorimetry::Default(Colorimetry::srgb_sdr().clone())
+    }
+}
+
+pub fn get_input_colorimetry(
+    colorspace: Option<&Colorspace>,
+    output_colorimetry: Option<&Colorimetry>,
+) -> InputColorimetry {
+    match colorspace {
+        Some(Colorspace::Native) => InputColorimetry::Override(
+            output_colorimetry
+                .cloned()
+                .unwrap_or_else(|| Colorimetry::srgb_sdr().clone()),
+        ),
+        Some(Colorspace::Srgb) => InputColorimetry::Override(Colorimetry::srgb_sdr().clone()),
+        None => InputColorimetry::Default(Colorimetry::srgb_sdr().clone()),
+    }
+}
+
 pub fn push_elements_from_surface_tree<R>(
     renderer: &mut R,
     surface: &WlSurface,
@@ -89,9 +121,11 @@ pub fn push_elements_from_surface_tree<R>(
     scale: Scale<f64>,
     alpha: f32,
     kind: Kind,
-    push: &mut dyn FnMut(WaylandSurfaceRenderElement<R>),
+    input_colorimetry: InputColorimetry,
+    output_colorimetry: Option<&Colorimetry>,
+    push: &mut dyn FnMut(ColorManagedElement<R, WaylandSurfaceRenderElement<R>>),
 ) where
-    R: Renderer + ImportAll,
+    R: NiriRenderer,
     R::TextureId: Clone + 'static,
 {
     let _span = tracy_client::span!("push_elements_from_surface_tree");
@@ -129,10 +163,22 @@ pub fn push_elements_from_surface_tree<R>(
                 };
 
                 if has_view {
+                    let (surface_desc, _surface_intent) =
+                        get_surface_description_from_surface_data(states);
+                    let input_colorimetry = match input_colorimetry {
+                        InputColorimetry::Default(default) => surface_desc
+                            .map(|desc| desc.contents().into())
+                            .unwrap_or(default),
+                        InputColorimetry::Override(forced) => forced,
+                    };
                     match WaylandSurfaceRenderElement::from_surface(
                         renderer, surface, states, location, alpha, kind,
                     ) {
-                        Ok(Some(surface)) => push(surface),
+                        Ok(Some(surface)) => push(ColorManagedElement::new(
+                            surface,
+                            renderer,
+                            ColorMapping::input_output(&input_colorimetry, output_colorimetry),
+                        )),
                         Ok(None) => {} // surface is not mapped
                         Err(err) => {
                             warn!("failed to import surface: {}", err);

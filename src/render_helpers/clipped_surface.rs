@@ -14,6 +14,7 @@ use super::damage::ExtraDamage;
 use super::renderer::{AsGlesFrame as _, NiriRenderer};
 use super::shaders::{mat3_uniform, Shaders};
 use crate::backend::tty::{TtyFrame, TtyRenderer, TtyRendererError};
+use crate::render_helpers::color_manage::ColorMapping;
 
 #[derive(Debug)]
 pub struct ClippedSurfaceRenderElement<R: NiriRenderer> {
@@ -22,6 +23,7 @@ pub struct ClippedSurfaceRenderElement<R: NiriRenderer> {
     corner_radius: CornerRadius,
     geometry: Rectangle<f64, Logical>,
     scale: f32,
+    mapping: ColorMapping,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -37,6 +39,7 @@ impl<R: NiriRenderer> ClippedSurfaceRenderElement<R> {
         geometry: Rectangle<f64, Logical>,
         program: GlesTexProgram,
         corner_radius: CornerRadius,
+        mapping: ColorMapping,
     ) -> Self {
         Self {
             inner: elem,
@@ -44,6 +47,7 @@ impl<R: NiriRenderer> ClippedSurfaceRenderElement<R> {
             corner_radius,
             geometry,
             scale: scale.x as f32,
+            mapping,
         }
     }
 
@@ -96,6 +100,9 @@ impl<R: NiriRenderer> ClippedSurfaceRenderElement<R> {
             Uniform::new("geo_size", geo_size),
             Uniform::new("corner_radius", <[f32; 4]>::from(self.corner_radius)),
             mat3_uniform("input_to_geo", input_to_geo),
+            Uniform::new("input_tf", self.mapping.input_tf.to_uniform()),
+            Uniform::new("output_tf", self.mapping.output_tf.to_uniform()),
+            mat3_uniform("input_to_output", self.mapping.input_to_output),
         ]
     }
 

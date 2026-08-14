@@ -62,6 +62,7 @@ use smithay::reexports::calloop::{
     Interest, LoopHandle, LoopSignal, Mode, PostAction, RegistrationToken,
 };
 use smithay::reexports::wayland_protocols::ext::session_lock::v1::server::ext_session_lock_v1::ExtSessionLockV1;
+use smithay::reexports::wayland_protocols::wp::color_management::v1::server::wp_color_manager_v1::{Feature, Primaries, RenderIntent, TransferFunction};
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::WmCapabilities;
 use smithay::reexports::wayland_protocols_misc::server_decoration as _server_decoration;
 use smithay::reexports::wayland_protocols_wlr::screencopy::v1::server::zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1;
@@ -76,6 +77,8 @@ use smithay::utils::{
     Rectangle, Scale, Size, Transform, SERIAL_COUNTER,
 };
 use smithay::wayland::background_effect::BackgroundEffectState;
+use smithay::wayland::color::management::{ColorManagementState, get_output_description, update_output_desc, update_surface_preferred};
+use smithay::wayland::color::representation::ColorRepresentationState;
 use smithay::wayland::compositor::{
     with_states, with_surface_tree_downward, CompositorClientState, CompositorHandler,
     CompositorState, HookId, SurfaceData, TraversalAction,
@@ -165,11 +168,14 @@ use crate::protocols::mutter_x11_interop::MutterX11InteropManagerState;
 use crate::protocols::output_management::OutputManagementManagerState;
 use crate::protocols::screencopy::{Screencopy, ScreencopyBuffer, ScreencopyManagerState};
 use crate::render_helpers::blur::BlurOptions;
+use crate::render_helpers::color_manage::{
+    ColorManagedElement, ColorMapping, Colorimetry, OutputColorimetry,
+};
 use crate::render_helpers::debug::push_opaque_regions;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
-use crate::render_helpers::surface::push_elements_from_surface_tree;
+use crate::render_helpers::surface::{push_elements_from_surface_tree, InputColorimetry};
 use crate::render_helpers::texture::TextureBuffer;
 use crate::render_helpers::xray::{Xray, XrayPos};
 use crate::render_helpers::{
@@ -345,6 +351,8 @@ pub struct Niri {
     pub gamma_control_manager_state: GammaControlManagerState,
     pub activation_state: XdgActivationState,
     pub mutter_x11_interop_state: MutterX11InteropManagerState,
+    pub color_management_state: ColorManagementState,
+    pub color_representation_state: ColorRepresentationState,
 
     // This will not work as is outside of tests, so it is gated with #[cfg(test)] for now. In
     // particular, shaders will need to learn about the single pixel buffer. Also, it must be
@@ -2186,6 +2194,7 @@ impl State {
                 }
             }
             niri_ipc::OutputAction::MaxBpc { max_bpc } => config.max_bpc = Some(MaxBpc(max_bpc)),
+            niri_ipc::OutputAction::Hdr { hdr } => config.hdr = hdr.hdr,
         });
 
         self.reload_output_config();
@@ -2557,7 +2566,16 @@ impl Niri {
             SessionLockManagerState::new::<State, _>(&display_handle, client_is_unrestricted);
         let shm_state = ShmState::new::<State>(
             &display_handle,
-            vec![wl_shm::Format::Xbgr8888, wl_shm::Format::Abgr8888],
+            vec![
+                wl_shm::Format::Abgr16161616f,
+                wl_shm::Format::Xbgr16161616f,
+                wl_shm::Format::Xrgb2101010,
+                wl_shm::Format::Argb2101010,
+                wl_shm::Format::Xbgr2101010,
+                wl_shm::Format::Abgr2101010,
+                wl_shm::Format::Xbgr8888,
+                wl_shm::Format::Abgr8888,
+            ],
         );
         let output_manager_state =
             OutputManagerState::new_with_xdg_output::<State>(&display_handle);
@@ -2645,6 +2663,41 @@ impl Niri {
 
         let mutter_x11_interop_state =
             MutterX11InteropManagerState::new::<State, _>(&display_handle, move |_| true);
+
+        let color_management_state = ColorManagementState::new::<State>(
+            &display_handle,
+            vec![RenderIntent::Perceptual].into_iter(),
+            vec![
+                Feature::Parametric,
+                Feature::SetPrimaries,
+                Feature::SetLuminances,
+                Feature::SetMasteringDisplayPrimaries,
+                Feature::WindowsScrgb,
+            ]
+            .into_iter(),
+            vec![
+                TransferFunction::Srgb,
+                TransferFunction::St2084Pq,
+                TransferFunction::Gamma22,
+                TransferFunction::ExtLinear,
+            ]
+            .into_iter(),
+            vec![
+                Primaries::Srgb,
+                Primaries::Bt2020,
+                Primaries::DciP3,
+                Primaries::DisplayP3,
+                Primaries::Cie1931Xyz,
+            ]
+            .into_iter(),
+        );
+
+        let color_representation_state = ColorRepresentationState::new::<State>(
+            &display_handle,
+            vec![].into_iter(),
+            vec![].into_iter(),
+            vec![].into_iter(),
+        );
 
         #[cfg(test)]
         let single_pixel_buffer_state = SinglePixelBufferState::new::<State>(&display_handle);
@@ -2852,6 +2905,8 @@ impl Niri {
             gamma_control_manager_state,
             activation_state,
             mutter_x11_interop_state,
+            color_representation_state,
+            color_management_state,
             #[cfg(test)]
             single_pixel_buffer_state,
 
@@ -3321,6 +3376,33 @@ impl Niri {
                 self.queue_redraw_all();
                 return;
             }
+        }
+
+        self.queue_redraw(output);
+    }
+
+    pub fn colorimetry_updated(&mut self, output: &Output, target_colorimetry: &Colorimetry) {
+        update_output_desc(
+            output,
+            self.color_management_state
+                .build_description(target_colorimetry.into()),
+        );
+
+        {
+            let layer_map = layer_map_for_output(output);
+            for layer in layer_map.layers() {
+                if let Some(mapped) = self.mapped_layer_surfaces.get_mut(layer) {
+                    mapped.update_colorimetry(Some(*target_colorimetry));
+                }
+                if let Some(output_desc) = get_output_description(output) {
+                    layer.with_surfaces(|_, data| {
+                        update_surface_preferred(data, output_desc.clone());
+                    });
+                }
+            }
+        }
+        for window in self.layout.windows_for_output(output) {
+            window.output_enter(output);
         }
 
         self.queue_redraw(output);
@@ -3999,6 +4081,11 @@ impl Niri {
         output: &Output,
         push: &mut dyn FnMut(PointerRenderElements<R>),
     ) {
+        let colorimetry = output
+            .user_data()
+            .get::<OutputColorimetry>()
+            .map(|colorimetry| colorimetry.colorimetry.lock().unwrap().clone());
+
         let _span = tracy_client::span!("Niri::render_pointer");
         let output_scale = output.current_scale();
         let output_pos = self.global_space.output_geometry(output).unwrap().loc;
@@ -4028,6 +4115,8 @@ impl Niri {
                     output_scale,
                     1.,
                     Kind::Cursor,
+                    InputColorimetry::default(),
+                    colorimetry.as_ref(),
                     &mut |elem| push(elem.into()),
                 );
             }
@@ -4051,7 +4140,14 @@ impl Niri {
                     None,
                     Kind::Cursor,
                 ) {
-                    Ok(element) => push(element.into()),
+                    Ok(element) => push(
+                        ColorManagedElement::new(
+                            element,
+                            renderer,
+                            ColorMapping::input_output(None, colorimetry.as_ref()),
+                        )
+                        .into(),
+                    ),
                     Err(err) => {
                         warn!("error importing a cursor texture: {err:?}");
                     }
@@ -4069,6 +4165,8 @@ impl Niri {
                 output_scale,
                 1.,
                 Kind::ScanoutCandidate,
+                InputColorimetry::default(),
+                colorimetry.as_ref(),
                 &mut |elem| push(elem.into()),
             );
         }
@@ -4509,6 +4607,11 @@ impl Niri {
         let state = self.output_state.get(output).unwrap();
         let output_scale = Scale::from(output.current_scale().fractional_scale());
 
+        let colorimetry = output
+            .user_data()
+            .get::<OutputColorimetry>()
+            .map(|colorimetry| colorimetry.colorimetry.lock().unwrap().clone());
+
         let push = if self.debug_draw_opaque_regions {
             &mut move |elem| {
                 push_opaque_regions(&elem, output_scale, push);
@@ -4549,6 +4652,8 @@ impl Niri {
                     output_scale,
                     1.,
                     Kind::ScanoutCandidate,
+                    InputColorimetry::default(),
+                    colorimetry.as_ref(),
                     &mut |elem| push(elem.into()),
                 );
             }
@@ -5959,6 +6064,11 @@ impl Niri {
         renderer: &mut GlesRenderer,
         output: &Output,
     ) -> Vec<PointerRenderElements<GlesRenderer>> {
+        let colorimetry = output
+            .user_data()
+            .get::<OutputColorimetry>()
+            .map(|colorimetry| colorimetry.colorimetry.lock().unwrap().clone());
+
         let int_scale = output.current_scale().integer_scale();
         let output_scale = Scale::from(output.current_scale().fractional_scale());
 
@@ -5980,6 +6090,8 @@ impl Niri {
                     output_scale,
                     1.,
                     Kind::Cursor,
+                    InputColorimetry::default(),
+                    colorimetry.as_ref(),
                     &mut |elem| elements.push(elem.into()),
                 );
             }
@@ -5999,7 +6111,14 @@ impl Niri {
                     None,
                     Kind::Cursor,
                 ) {
-                    Ok(element) => elements.push(element.into()),
+                    Ok(element) => elements.push(
+                        ColorManagedElement::new(
+                            element,
+                            renderer,
+                            ColorMapping::input_output(None, colorimetry.as_ref()),
+                        )
+                        .into(),
+                    ),
                     Err(err) => {
                         warn!("error importing a cursor texture: {err:?}");
                     }
@@ -7293,8 +7412,8 @@ fn scale_relocate_crop<E: Element>(
 
 niri_render_elements! {
     PointerRenderElements<R> => {
-        Wayland = WaylandSurfaceRenderElement<R>,
-        NamedPointer = MemoryRenderBufferRenderElement<R>,
+        NamedPointer = ColorManagedElement<R, MemoryRenderBufferRenderElement<R>>,
+        ColorManaged = ColorManagedElement<R, WaylandSurfaceRenderElement<R>>,
     }
 }
 
@@ -7317,7 +7436,7 @@ niri_render_elements! {
             SolidColorRenderElement
         >>>,
         Pointer = PointerRenderElements<R>,
-        Wayland = WaylandSurfaceRenderElement<R>,
+        Wayland = ColorManagedElement<R, WaylandSurfaceRenderElement<R>>,
         SolidColor = SolidColorRenderElement,
         ScreenshotUi = ScreenshotUiRenderElement,
         WindowMruUi = WindowMruUiRenderElement<R>,

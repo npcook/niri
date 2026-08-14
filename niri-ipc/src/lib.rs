@@ -1119,6 +1119,12 @@ pub enum OutputAction {
         #[cfg_attr(feature = "clap", arg())]
         max_bpc: MaxBpc,
     },
+    /// Enables or disables high dynamic range.
+    Hdr {
+        /// HDR mode to set.
+        #[cfg_attr(feature = "clap", command(flatten))]
+        hdr: HdrToSet,
+    },
 }
 
 /// Output mode to set.
@@ -1221,6 +1227,24 @@ pub struct VrrToSet {
     pub on_demand: bool,
 }
 
+/// Output VRR to set.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "clap", derive(clap::Args))]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct HdrToSet {
+    /// Whether to enable HDR.
+    #[cfg_attr(
+        feature = "clap",
+        arg(
+            value_name = "ON|OFF",
+            action = clap::ArgAction::Set,
+            value_parser = clap::builder::BoolishValueParser::new(),
+            hide_possible_values = true,
+        ),
+    )]
+    pub hdr: bool,
+}
+
 /// Connected output.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
@@ -1253,6 +1277,10 @@ pub struct Output {
     pub logical: Option<LogicalOutput>,
     /// Maximum bits per channel (bit depth), if known.
     pub max_bpc: Option<u8>,
+    /// Whether high dynamic range is supported on the output.
+    pub hdr_supported: bool,
+    /// Whether high dynamic range is enabled on the output.
+    pub hdr_enabled: bool,
 }
 
 /// Output mode.

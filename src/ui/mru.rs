@@ -30,6 +30,7 @@ use crate::niri::Niri;
 use crate::niri_render_elements;
 use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::clipped_surface::ClippedSurfaceRenderElement;
+use crate::render_helpers::color_manage::ColorMapping;
 use crate::render_helpers::gradient_fade_texture::GradientFadeTextureRenderElement;
 use crate::render_helpers::offscreen::{OffscreenBuffer, OffscreenRenderElement};
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
@@ -375,22 +376,31 @@ impl Thumbnail {
             CornerRadius::default()
         };
 
+        let output_colorimetry = mapped.get_output_colorimetry();
+
         let has_border_shader = BorderRenderElement::has_shader(ctx.renderer);
         let clip_shader = ClippedSurfaceRenderElement::shader(ctx.renderer).cloned();
         let geo = Rectangle::from_size(self.size.to_f64());
         // FIXME: deduplicate code with Tile::render_inner()
         let clip = move |elem| match elem {
-            LayoutElementRenderElement::Wayland(elem) => {
+            LayoutElementRenderElement::ColorManaged(elem) => {
                 if let Some(shader) = clip_shader.clone() {
-                    if ClippedSurfaceRenderElement::will_clip(&elem, s, geo, radius) {
-                        let elem =
-                            ClippedSurfaceRenderElement::new(elem, s, geo, shader.clone(), radius);
+                    if ClippedSurfaceRenderElement::will_clip(&elem.inner(), s, geo, radius) {
+                        let mapping = elem.mapping().clone();
+                        let elem = ClippedSurfaceRenderElement::new(
+                            elem.into(),
+                            s,
+                            geo,
+                            shader.clone(),
+                            radius,
+                            mapping,
+                        );
                         return ThumbnailRenderElement::ClippedSurface(elem);
                     }
                 }
 
                 // If we don't have the shader, render it normally.
-                let elem = LayoutElementRenderElement::Wayland(elem);
+                let elem = LayoutElementRenderElement::ColorManaged(elem);
                 ThumbnailRenderElement::LayoutElement(elem)
             }
             LayoutElementRenderElement::SolidColor(elem) => {
@@ -413,6 +423,7 @@ impl Thumbnail {
                         radius,
                         scale as f32,
                         1.,
+                        ColorMapping::input_output(None, output_colorimetry.as_ref()),
                     )
                     .into();
                 }
@@ -538,6 +549,7 @@ impl Thumbnail {
                 radius,
                 scale,
                 0.5,
+                ColorMapping::input_output(None, output_colorimetry.as_ref()),
             );
             background.render(ctx.renderer, loc, &mut |elem| {
                 push(WindowMruUiRenderElement::FocusRing(elem))
@@ -559,6 +571,7 @@ impl Thumbnail {
                 radius.expanded_by(config.width as f32),
                 scale,
                 1.,
+                ColorMapping::input_output(None, output_colorimetry.as_ref()),
             );
 
             border.render(ctx.renderer, loc, &mut |elem| {

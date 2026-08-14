@@ -21,6 +21,7 @@ use crate::niri_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
 use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::clipped_surface::{ClippedSurfaceRenderElement, RoundedCornerDamage};
+use crate::render_helpers::color_manage::ColorMapping;
 use crate::render_helpers::damage::ExtraDamage;
 use crate::render_helpers::offscreen::{OffscreenBuffer, OffscreenRenderElement};
 use crate::render_helpers::renderer::NiriRenderer;
@@ -508,6 +509,7 @@ impl<W: LayoutElement> Tile<W> {
             .geometry_corner_radius()
             .expanded_by(border_width as f32)
             .scaled_by(1. - expanded_progress as f32);
+
         self.border.update_render_elements(
             border_window_size,
             is_active,
@@ -520,6 +522,7 @@ impl<W: LayoutElement> Tile<W> {
             radius,
             self.scale,
             1. - expanded_progress as f32,
+            ColorMapping::input_output(None, self.window.get_output_colorimetry().as_ref()),
         );
 
         let radius = if self.visual_border_width().is_some() {
@@ -552,6 +555,7 @@ impl<W: LayoutElement> Tile<W> {
             radius,
             self.scale,
             1. - expanded_progress as f32,
+            ColorMapping::input_output(None, self.window.get_output_colorimetry().as_ref()),
         );
 
         self.fullscreen_backdrop.resize(animated_tile_size);
@@ -1178,6 +1182,10 @@ impl<W: LayoutElement> Tile<W> {
                             radius,
                             clip_to_geometry,
                             win_alpha,
+                            ColorMapping::input_output(
+                                None,
+                                self.window.get_output_colorimetry().as_ref(),
+                            ),
                         );
 
                         // We're drawing the resize shader, not the offscreen directly.
@@ -1213,17 +1221,24 @@ impl<W: LayoutElement> Tile<W> {
 
             let clip_shader = ClippedSurfaceRenderElement::shader(ctx.renderer).cloned();
             let clip = |elem| match elem {
-                LayoutElementRenderElement::Wayland(elem) => {
+                LayoutElementRenderElement::ColorManaged(elem) => {
                     // If we should clip to geometry, render a clipped window.
                     if clip_to_geometry {
                         if let Some(shader) = clip_shader.clone() {
-                            if ClippedSurfaceRenderElement::will_clip(&elem, scale, geo, radius) {
+                            if ClippedSurfaceRenderElement::will_clip(
+                                &elem.inner(),
+                                scale,
+                                geo,
+                                radius,
+                            ) {
+                                let mapping = elem.mapping().clone();
                                 return ClippedSurfaceRenderElement::new(
-                                    elem,
+                                    elem.into(),
                                     scale,
                                     geo,
                                     shader.clone(),
                                     radius,
+                                    mapping,
                                 )
                                 .into();
                             }
@@ -1231,7 +1246,7 @@ impl<W: LayoutElement> Tile<W> {
                     }
 
                     // Otherwise, render it normally.
-                    LayoutElementRenderElement::Wayland(elem).into()
+                    LayoutElementRenderElement::ColorManaged(elem).into()
                 }
                 LayoutElementRenderElement::SolidColor(elem) => {
                     // In this branch we're rendering a blocked-out window with a solid
@@ -1253,6 +1268,10 @@ impl<W: LayoutElement> Tile<W> {
                             radius,
                             scale.x as f32,
                             1.,
+                            ColorMapping::input_output(
+                                None,
+                                self.window.get_output_colorimetry().as_ref(),
+                            ),
                         )
                         .with_location(geo.loc)
                         .into();
@@ -1307,6 +1326,7 @@ impl<W: LayoutElement> Tile<W> {
                     radius,
                     scale.x as f32,
                     alpha,
+                    ColorMapping::input_output(None, self.window.get_output_colorimetry().as_ref()),
                 )
                 .with_location(location);
                 push(elem.into());

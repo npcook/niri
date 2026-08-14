@@ -15,6 +15,7 @@ use super::renderer::{AsGlesFrame, NiriRenderer};
 use super::shader_element::ShaderRenderElement;
 use super::shaders::{mat3_uniform, ProgramType, Shaders};
 use crate::backend::tty::{TtyFrame, TtyRenderer, TtyRendererError};
+use crate::render_helpers::color_manage::ColorMapping;
 
 #[derive(Debug)]
 pub struct ResizeRenderElement(ShaderRenderElement);
@@ -33,6 +34,7 @@ impl ResizeRenderElement {
         corner_radius: CornerRadius,
         clip_to_geometry: bool,
         result_alpha: f32,
+        mapping: ColorMapping,
     ) -> Self {
         let curr_geo = area;
 
@@ -104,6 +106,9 @@ impl ResizeRenderElement {
                     Uniform::new("niri_clamped_progress", clamped_progress),
                     Uniform::new("niri_corner_radius", <[f32; 4]>::from(corner_radius)),
                     Uniform::new("niri_clip_to_geometry", clip_to_geometry),
+                    Uniform::new("input_tf", mapping.input_tf.to_uniform()),
+                    Uniform::new("output_tf", mapping.output_tf.to_uniform()),
+                    mat3_uniform("input_to_output", mapping.input_to_output),
                 ]),
                 HashMap::from([
                     (String::from("niri_tex_prev"), texture_prev),

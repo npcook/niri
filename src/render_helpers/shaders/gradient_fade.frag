@@ -1,5 +1,3 @@
-#version 100
-
 //_DEFINES_
 
 #if defined(EXTERNAL)
@@ -34,6 +32,7 @@ void main() {
         float fade = clamp((cutoff.y - v_coords.x) / (cutoff.y - cutoff.x), 0.0, 1.0);
         color = color * fade;
     }
+    color.rgb = convert_color(color.rgb);
 
     // Apply final alpha and tint.
     color = color * alpha;
