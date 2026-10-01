@@ -1,3 +1,5 @@
+#version 100
+
 //_DEFINES_
 
 #if defined(EXTERNAL)
@@ -20,6 +22,8 @@ uniform float tint;
 
 // x is left edge, y is right edge of the gradient.
 uniform vec2 cutoff;
+
+vec3 convert_color(vec3 color);
 
 void main() {
     // Sample the texture.

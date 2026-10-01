@@ -60,10 +60,10 @@ pub struct MappedLayer {
 
 niri_render_elements! {
     LayerSurfaceRenderElement<R> => {
+        ColorManaged = ColorManagedElement<R, WaylandSurfaceRenderElement<R>>,
         SolidColor = SolidColorRenderElement,
         Shadow = ShadowRenderElement,
         BackgroundEffect = BackgroundEffectElement,
-        ColorManaged = ColorManagedElement<R, WaylandSurfaceRenderElement<R>>,
     }
 }
 
@@ -82,8 +82,6 @@ impl MappedLayer {
         // Shadows for layer surfaces need to be explicitly enabled.
         shadow_config.on = false;
         shadow_config.merge_with(&rules.shadow);
-
-        // println!("output_colorimetry: {:?}", output_colorimetry);
 
         Self {
             surface,

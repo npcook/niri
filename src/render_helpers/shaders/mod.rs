@@ -61,11 +61,10 @@ impl Shaders {
         let border = ShaderProgram::compile(
             renderer,
             concat!(
-                include_str!("color_common.frag"),
                 include_str!("border.frag"),
-                include_str!("rounding_alpha.frag")
-            )
-            .trim_start_matches("#version 100"),
+                include_str!("rounding_alpha.frag"),
+                include_str!("color_common.frag"),
+            ),
             &border_uniforms,
             &[],
         )
@@ -109,9 +108,9 @@ impl Shaders {
         let clipped_surface = renderer
             .compile_custom_texture_shader(
                 concat!(
-                    include_str!("color_common.frag"),
                     include_str!("clipped_surface.frag"),
                     include_str!("rounding_alpha.frag"),
+                    include_str!("color_common.frag"),
                     "\nvec4 postprocess(vec4 color) { return color; }",
                 ),
                 &clipped_surface_uniforms,
@@ -130,9 +129,9 @@ impl Shaders {
         let postprocess_and_clip = renderer
             .compile_custom_texture_shader(
                 concat!(
-                    include_str!("color_common.frag"),
                     include_str!("clipped_surface.frag"),
                     include_str!("rounding_alpha.frag"),
+                    include_str!("color_common.frag"),
                     include_str!("postprocess.frag"),
                 ),
                 &postprocess_and_clip_uniforms,
@@ -153,8 +152,8 @@ impl Shaders {
         let gradient_fade = renderer
             .compile_custom_texture_shader(
                 concat!(
+                    include_str!("gradient_fade.frag"),
                     include_str!("color_common.frag"),
-                    include_str!("gradient_fade.frag")
                 ),
                 &gradient_fade_uniforms,
             )
@@ -172,8 +171,8 @@ impl Shaders {
         let color_manage = renderer
             .compile_custom_texture_shader(
                 concat!(
+                    include_str!("color_manage.frag"),
                     include_str!("color_common.frag"),
-                    include_str!("color_manage.frag")
                 ),
                 &color_uniforms,
             )
@@ -262,22 +261,32 @@ fn compile_resize_program(
     program.push_str(src);
     program.push_str(include_str!("resize_epilogue.frag"));
     program.push_str(include_str!("rounding_alpha.frag"));
+    program.push_str(include_str!("color_common.frag"));
+
+    let color_uniforms = vec![
+        UniformName::new("input_tf", UniformType::_1f),
+        UniformName::new("output_tf", UniformType::_1f),
+        UniformName::new("input_to_output", UniformType::Matrix3x3),
+    ];
+
+    let mut resize_uniforms = color_uniforms;
+    resize_uniforms.extend_from_slice(&[
+        UniformName::new("niri_input_to_curr_geo", UniformType::Matrix3x3),
+        UniformName::new("niri_curr_geo_to_prev_geo", UniformType::Matrix3x3),
+        UniformName::new("niri_curr_geo_to_next_geo", UniformType::Matrix3x3),
+        UniformName::new("niri_curr_geo_size", UniformType::_2f),
+        UniformName::new("niri_geo_to_tex_prev", UniformType::Matrix3x3),
+        UniformName::new("niri_geo_to_tex_next", UniformType::Matrix3x3),
+        UniformName::new("niri_progress", UniformType::_1f),
+        UniformName::new("niri_clamped_progress", UniformType::_1f),
+        UniformName::new("niri_corner_radius", UniformType::_4f),
+        UniformName::new("niri_clip_to_geometry", UniformType::_1f),
+    ]);
 
     ShaderProgram::compile(
         renderer,
         &program,
-        &[
-            UniformName::new("niri_input_to_curr_geo", UniformType::Matrix3x3),
-            UniformName::new("niri_curr_geo_to_prev_geo", UniformType::Matrix3x3),
-            UniformName::new("niri_curr_geo_to_next_geo", UniformType::Matrix3x3),
-            UniformName::new("niri_curr_geo_size", UniformType::_2f),
-            UniformName::new("niri_geo_to_tex_prev", UniformType::Matrix3x3),
-            UniformName::new("niri_geo_to_tex_next", UniformType::Matrix3x3),
-            UniformName::new("niri_progress", UniformType::_1f),
-            UniformName::new("niri_clamped_progress", UniformType::_1f),
-            UniformName::new("niri_corner_radius", UniformType::_4f),
-            UniformName::new("niri_clip_to_geometry", UniformType::_1f),
-        ],
+        &resize_uniforms,
         &["niri_tex_prev", "niri_tex_next"],
     )
 }

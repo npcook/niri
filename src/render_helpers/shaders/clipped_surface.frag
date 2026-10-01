@@ -1,3 +1,5 @@
+#version 100
+
 //_DEFINES_
 
 #if defined(EXTERNAL)
@@ -25,6 +27,9 @@ uniform vec4 corner_radius;
 uniform mat3 input_to_geo;
 
 float niri_rounding_alpha(vec2 coords, vec2 size, vec4 corner_radius);
+vec3 color_to_linear(vec3 color);
+vec3 convert_linear_color(vec3 color_linear);
+vec3 linear_to_color(vec3 color_linear);
 vec4 postprocess(vec4 color);
 
 void main() {

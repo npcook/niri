@@ -1030,12 +1030,6 @@ impl Tty {
                         .map(|x| x.supported_signal_colorimetry().bt2020_rgb)
                         .unwrap_or(false);
 
-                    // let chromacity = ColorspaceCoordinates {
-                    //     r: (0.6835, 0.3047),
-                    //     g: (0.2431, 0.7099),
-                    //     b: (0.1435, 0.0556),
-                    //     w: (0.3127, 0.3290),
-                    // };
                     let chromacity = info
                         .as_ref()
                         .map(|info| info.default_color_primaries())
@@ -1059,19 +1053,6 @@ impl Tty {
                     let mastering_luminances = luminances.map(|(min, _, max)| (min, max));
                     let max_cll = 400f32;
                     let max_fall = 400f32;
-                    // let chromacity = info
-                    //     .as_ref()
-                    //     .and_then(|info| info.edid())
-                    //     .map(|edid| {
-                    //         let coords = edid.chromaticity_coords();
-                    //         ColorspaceCoordinates {
-                    //             r: (coords.red_x, coords.red_y),
-                    //             g: (coords.green_x, coords.green_y),
-                    //             b: (coords.blue_x, coords.blue_y),
-                    //             w: (coords.white_x, coords.white_y),
-                    //         }
-                    //     })
-                    //     .unwrap_or(get_coordinates(MatrixCoefficients::Srgb));
 
                     let hdr_container = Colorimetry::bt2020_hdr();
                     let sdr_container = Colorimetry::bt2020_sdr();

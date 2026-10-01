@@ -23,6 +23,10 @@ uniform vec2 geo_size;
 uniform vec4 outer_radius;
 uniform float border_width;
 
+vec3 srgb_to_linear(vec3 color);
+vec3 linear_to_srgb(vec3 color);
+vec4 convert_color_with_alpha(vec4 color);
+
 vec4 premul_rect(vec4 color) {
     color.rgb *= color.a;
     return color;

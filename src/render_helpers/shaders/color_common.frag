@@ -1,7 +1,3 @@
-#version 100
-
-precision highp float;
-
 uniform float input_tf;
 uniform float output_tf;
 uniform mat3 input_to_output;
@@ -58,6 +54,10 @@ vec3 color_to_linear(vec3 color) {
     }
 }
 
+vec4 color_to_linear_with_alpha(vec4 color) {
+    return vec4(color_to_linear(color.rgb / color.a) * color.a, color.a);
+}
+
 vec3 convert_linear_color(vec3 color_linear) {
     return input_to_output * color_linear;
 }
@@ -74,6 +74,10 @@ vec3 linear_to_color(vec3 color_linear) {
     } else {
         return vec3(0.0);
     }
+}
+
+vec4 linear_to_color_with_alpha(vec4 color) {
+    return vec4(linear_to_color(color.rgb / color.a) * color.a, color.a);
 }
 
 vec3 convert_color(vec3 color) {

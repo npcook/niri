@@ -1,3 +1,5 @@
+#version 100
+
 precision highp float;
 #if defined(EXTERNAL)
 uniform samplerExternalOES tex;
@@ -6,6 +8,8 @@ uniform sampler2D tex;
 #endif
 
 varying vec2 v_coords;
+
+vec4 convert_color_with_alpha(vec4 color);
 
 void main() {
     vec4 color = texture2D(tex, v_coords);
