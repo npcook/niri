@@ -9,6 +9,7 @@ use wayland_server::protocol::wl_surface::WlSurface;
 use crate::handlers::background_effect::get_cached_blur_region;
 use crate::niri_render_elements;
 use crate::render_helpers::blur::BlurOptions;
+use crate::render_helpers::color_manage::ColorMapping;
 use crate::render_helpers::damage::ExtraDamage;
 use crate::render_helpers::framebuffer_effect::{FramebufferEffect, FramebufferEffectElement};
 use crate::render_helpers::xray::{XrayElement, XrayPos};
@@ -154,6 +155,7 @@ impl BackgroundEffect {
         ns: Option<usize>,
         mut params: RenderParams,
         xray_pos: XrayPos,
+        mapping: ColorMapping,
         push: &mut dyn FnMut(BackgroundEffectElement),
     ) {
         if !self.is_visible() {
@@ -193,6 +195,7 @@ impl BackgroundEffect {
                 blur,
                 noise,
                 saturation,
+                mapping,
                 &mut |elem| push(elem.into()),
             );
         } else {
@@ -295,6 +298,7 @@ pub fn render_for_tile(
     effect: niri_config::BackgroundEffect,
     should_block_out: bool,
     xray_pos: XrayPos,
+    mapping: ColorMapping,
     push: &mut dyn FnMut(BackgroundEffectElement),
 ) {
     with_states(surface, |states| {
@@ -327,6 +331,6 @@ pub fn render_for_tile(
         };
 
         let xray_pos = xray_pos.offset(params.geometry.loc - geometry.loc);
-        background_effect.render(ctx, ns, params, xray_pos, push);
+        background_effect.render(ctx, ns, params, xray_pos, mapping, push);
     });
 }

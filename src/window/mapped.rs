@@ -751,6 +751,7 @@ impl LayoutElement for Mapped {
                 effect,
                 false,
                 xray_pos,
+                ColorMapping::input_output(None, output_colorimetry.as_ref()),
                 &mut |elem| push(elem.into()),
             );
         }
@@ -765,6 +766,7 @@ impl LayoutElement for Mapped {
         surface_anim_scale: Scale<f64>,
         radius: CornerRadius,
         xray_pos: XrayPos,
+        mapping: ColorMapping,
         push: &mut dyn FnMut(BackgroundEffectElement),
     ) {
         let should_block_out = ctx.target.should_block_out(self.rules.block_out_from);
@@ -782,6 +784,7 @@ impl LayoutElement for Mapped {
             self.rules.background_effect,
             should_block_out,
             xray_pos,
+            mapping,
             push,
         );
     }

@@ -1372,6 +1372,7 @@ impl<W: LayoutElement> Tile<W> {
             surface_anim_scale,
             radius,
             xray_pos,
+            ColorMapping::input_output(None, self.window.get_output_colorimetry().as_ref()),
             &mut |elem| push(elem.into()),
         );
     }

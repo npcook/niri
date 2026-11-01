@@ -60,7 +60,7 @@ use crate::input::swipe_tracker::SwipeTracker;
 use crate::layout::scrolling::ScrollDirection;
 use crate::niri_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
-use crate::render_helpers::color_manage::{ColorManagedElement, Colorimetry};
+use crate::render_helpers::color_manage::{ColorManagedElement, ColorMapping, Colorimetry};
 use crate::render_helpers::offscreen::OffscreenData;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::snapshot::RenderSnapshot;
@@ -210,6 +210,7 @@ pub trait LayoutElement {
         _surface_anim_scale: Scale<f64>,
         _radius: CornerRadius,
         _xray_pos: XrayPos,
+        _mapping: ColorMapping,
         _push: &mut dyn FnMut(BackgroundEffectElement),
     ) {
     }

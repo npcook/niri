@@ -15,6 +15,7 @@ use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, T
 
 use crate::backend::tty::{TtyFrame, TtyRenderer, TtyRendererError};
 use crate::render_helpers::background_effect::RenderParams;
+use crate::render_helpers::color_manage::ColorMapping;
 use crate::render_helpers::effect_buffer::EffectBuffer;
 use crate::render_helpers::renderer::AsGlesFrame as _;
 use crate::render_helpers::shaders::{mat3_uniform, Shaders};
@@ -79,6 +80,7 @@ pub struct XrayElement {
     blur: bool,
     noise: f32,
     saturation: f32,
+    mapping: ColorMapping,
     bg_color: Color32F,
     program: Option<GlesTexProgram>,
 }
@@ -102,6 +104,7 @@ impl Xray {
         blur: bool,
         noise: f32,
         saturation: f32,
+        mapping: ColorMapping,
         push: &mut dyn FnMut(XrayElement),
     ) {
         let program = Shaders::get(ctx.renderer).postprocess_and_clip.clone();
@@ -200,6 +203,7 @@ impl Xray {
                     blur,
                     noise,
                     saturation,
+                    mapping: mapping.clone(),
                     bg_color: *bg_color,
                     program: program.clone(),
                 };
@@ -250,6 +254,7 @@ impl Xray {
                 blur,
                 noise,
                 saturation,
+                mapping,
                 bg_color: self.backdrop_color,
                 program: program.clone(),
             };
@@ -259,7 +264,7 @@ impl Xray {
 }
 
 impl XrayElement {
-    fn compute_uniforms(&self) -> [Uniform<'static>; 7] {
+    fn compute_uniforms(&self) -> [Uniform<'static>; 10] {
         [
             Uniform::new("niri_scale", self.scale),
             Uniform::new("geo_size", <[f32; 2]>::from(self.clip_geo_size)),
@@ -268,6 +273,9 @@ impl XrayElement {
             Uniform::new("noise", self.noise),
             Uniform::new("saturation", self.saturation),
             Uniform::new("bg_color", self.bg_color.components()),
+            Uniform::new("input_tf", self.mapping.input_tf.to_uniform()),
+            Uniform::new("output_tf", self.mapping.output_tf.to_uniform()),
+            mat3_uniform("input_to_output", self.mapping.input_to_output),
         ]
     }
 }

@@ -12,7 +12,7 @@ use crate::animation::Clock;
 use crate::layout::shadow::Shadow;
 use crate::niri_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
-use crate::render_helpers::color_manage::{ColorManagedElement, Colorimetry};
+use crate::render_helpers::color_manage::{ColorManagedElement, ColorMapping, Colorimetry};
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
@@ -262,6 +262,7 @@ impl MappedLayer {
             self.rules.background_effect,
             should_block_out,
             xray_pos,
+            ColorMapping::input_output(None, self.output_colorimetry.as_ref()),
             &mut |elem| push(elem.into()),
         );
     }
@@ -337,6 +338,7 @@ impl MappedLayer {
                 effect,
                 false,
                 xray_pos,
+                ColorMapping::input_output(None, self.output_colorimetry.as_ref()),
                 &mut |elem| push(elem.into()),
             );
         }
